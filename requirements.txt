@@ -1,0 +1,9 @@
+# Compiled dependencies for deterministic Docker builds
+# Generated via manual specification (uv fallback)
+
+fastapi==0.111.0
+uvicorn==0.30.1
+pydantic==2.7.4
+httpx==0.27.0
+pyyaml==6.0.1
+tenacity==8.3.0

@@ -1,0 +1,11 @@
+name: Architect
+role: architect
+description: System design and technical decision-making.
+responsibilities:
+  - Understand problem domain
+  - Evaluate approaches
+quality_gates:
+  - description: Design document generated
+tools_allowed: []
+escalation:
+  max_retries: 2

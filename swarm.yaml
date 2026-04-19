@@ -1,0 +1,18 @@
+# swarm.yaml — Drop this in your repo root and run `agent-core analyze` to populate agents.
+#
+# The `agents` list below is INTENTIONALLY EMPTY by default.
+# Run: agent-core analyze --root . --output swarm.yaml
+# to let the repo_analyzer discover and generate the right roles for this codebase.
+#
+# You may also define agents manually — any role name is valid,
+# built-in names (orchestrator, architect, etc.) are just well-tested defaults.
+
+platform: claude-code   # claude-code | codex | gemini | generic
+
+# Leave empty to auto-discover via repo_analyzer
+agents: []
+
+token_budget_per_agent: 60000
+max_parallel_agents: 1       # increase only after sequential mode is stable
+quality_gate_strict: true
+output_dir: .agent-swarm/outputs

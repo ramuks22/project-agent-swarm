@@ -1,0 +1,11 @@
+name: Implementer
+role: implementer
+description: Writes, edits, and refactors code based on specifications.
+responsibilities:
+  - Write code
+  - Fix compiler errors
+quality_gates:
+  - description: Code builds without errors
+tools_allowed: []
+escalation:
+  max_retries: 2

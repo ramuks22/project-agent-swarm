@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AgentSpec",
+  "description": "Canonical definition of an agent role in the agent-swarm system.",
+  "type": "object",
+  "required": ["name", "role", "description", "responsibilities", "quality_gates", "tools_allowed", "out_of_scope"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Short identifier. Used as the agent's display name and invocation key.",
+      "examples": ["orchestrator", "architect", "implementer", "qa-engineer", "reviewer", "debugger"]
+    },
+    "role": {
+      "type": "string",
+      "description": "One-line summary of this agent's function."
+    },
+    "description": {
+      "type": "string",
+      "description": "When to invoke this agent. Used by the orchestrator to route tasks."
+    },
+    "persona": {
+      "type": "string",
+      "description": "The voice and attitude the agent should adopt."
+    },
+    "responsibilities": {
+      "type": "array",
+      "description": "What this agent is expected to do.",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "quality_gates": {
+      "type": "array",
+      "description": "Explicit done-criteria. Agent must not return output until all are satisfied.",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "tools_allowed": {
+      "type": "array",
+      "description": "Tools this agent is permitted to use.",
+      "items": {
+        "type": "string",
+        "enum": ["Bash", "Read", "Write", "Edit", "MultiEdit", "WebSearch", "WebFetch", "Task", "TodoRead", "TodoWrite", "Grep", "Glob", "LS", "NotebookRead", "NotebookEdit"]
+      }
+    },
+    "out_of_scope": {
+      "type": "array",
+      "description": "Tasks this agent must refuse and escalate to the orchestrator.",
+      "items": { "type": "string" }
+    },
+    "escalation_policy": {
+      "type": "string",
+      "description": "What to do when uncertain or blocked.",
+      "default": "Stop and surface the blocker to the orchestrator. Never guess on consequential decisions."
+    },
+    "output_format": {
+      "type": "object",
+      "description": "Expected output format when returning results.",
+      "properties": {
+        "summary": { "type": "string" },
+        "artifacts": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "next_agent": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Swarm Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .event-log { font-family: 'Courier New', Courier, monospace; }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen">
+    <div class="max-w-4xl mx-auto p-8">
+        <header class="mb-12 border-b border-gray-800 pb-6 flex justify-between items-center">
+            <div>
+                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">
+                    Agent Swarm
+                </h1>
+                <p class="text-gray-400 mt-1">Institutional-Grade Orchestration Dashboard</p>
+            </div>
+            <div id="status-badge" class="px-3 py-1 rounded-full text-xs font-medium bg-gray-800 text-gray-400 border border-gray-700">
+                STATUS: IDLE
+            </div>
+        </header>
+
+        <main class="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <!-- Control Panel -->
+            <div class="md:col-span-1 space-y-6">
+                <!-- Fetch Previous Task -->
+                <section class="bg-gray-800 rounded-xl p-6 border border-gray-700 shadow-xl">
+                    <h2 class="text-lg font-semibold mb-4 flex items-center">
+                        <span class="mr-2">💾</span> Resume Task
+                    </h2>
+                    <div class="space-y-4">
+                        <div>
+                            <input type="text" id="recover-id" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Task ID...">
+                        </div>
+                        <button id="recover-btn" class="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 rounded-lg transition duration-200">
+                            Load History
+                        </button>
+                    </div>
+                </section>
+
+                <section class="bg-gray-800 rounded-xl p-6 border border-gray-700 shadow-xl">
+                    <h2 class="text-lg font-semibold mb-4 flex items-center">
+                        <span class="mr-2">🚀</span> Trigger Swarm
+                    </h2>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-400 mb-1">Task Description</label>
+                            <textarea id="task-desc" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none h-24" placeholder="e.g. Implement a health check endpoint..."></textarea>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-400 mb-1">Agent Roles</label>
+                            <div id="roles-list" class="space-y-1 text-sm text-gray-400 italic">Loading registered agents...</div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-400 mb-1">API Key (Gemini/Claude)</label>
+                            <input type="password" id="api-key" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="sk-...">
+                        </div>
+                        <button id="run-btn" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg transition duration-200">
+                            RUN SWARM
+                        </button>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Monitoring View -->
+            <div class="md:col-span-2 space-y-6">
+                <section class="bg-gray-800 rounded-xl p-6 border border-gray-700 shadow-xl flex flex-col h-full">
+                    <h2 class="text-lg font-semibold mb-4">Live Execution Trace</h2>
+                    <div id="trace-container" class="flex-grow space-y-4 overflow-y-auto max-h-[600px] pr-2 event-log">
+                        <div class="text-gray-500 italic text-sm">System ready. Awaiting task initiation...</div>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const runBtn = document.getElementById('run-btn');
+        const recoverBtn = document.getElementById('recover-btn');
+        const traceContainer = document.getElementById('trace-container');
+        const statusBadge = document.getElementById('status-badge');
+        const rolesList = document.getElementById('roles-list');
+
+        // m-04 Fix: Dynamically fetch registered agent roles from /health
+        async function loadRegisteredRoles() {
+            try {
+                const resp = await fetch('/health');
+                if (!resp.ok) throw new Error('API unavailable');
+                const data = await resp.json();
+                const roles = data.registered_roles || [];
+                if (roles.length === 0) {
+                    rolesList.innerHTML = '<span class="text-yellow-400">No agents registered. Check agents/ YAML configs.</span>';
+                    return;
+                }
+                rolesList.innerHTML = roles.map(role =>
+                    `<label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" class="role-checkbox accent-blue-500" value="${role}" ${role === 'architect' || role === 'implementer' ? 'checked' : ''}>
+                        <span class="text-gray-300">${role}</span>
+                    </label>`
+                ).join('');
+            } catch (err) {
+                rolesList.innerHTML = `<span class="text-red-400">Failed to load roles: ${err.message}</span>`;
+            }
+        }
+        loadRegisteredRoles();
+
+        function appendLog(message, type = 'info') {
+            const div = document.createElement('div');
+            let colorClass = 'bg-gray-900/50 border-gray-800 text-gray-400';
+            if (type === 'start') colorClass = 'bg-blue-900/20 border-blue-800 text-blue-300';
+            if (type === 'complete') colorClass = 'bg-green-900/20 border-green-800 text-green-300';
+            if (type === 'error') colorClass = 'bg-red-900/20 border-red-800 text-red-300';
+            if (type === 'history') colorClass = 'bg-purple-900/20 border-purple-800 text-purple-300';
+
+            div.className = `p-3 rounded-lg text-sm border ${colorClass}`;
+            div.innerHTML = `<span class="opacity-50 mr-2">[${new Date().toLocaleTimeString()}]</span> ${message}`;
+            traceContainer.appendChild(div);
+            traceContainer.scrollTop = traceContainer.scrollHeight;
+        }
+
+        recoverBtn.addEventListener('click', async () => {
+            const taskId = document.getElementById('recover-id').value;
+            if(!taskId) return;
+            
+            traceContainer.innerHTML = '';
+            appendLog(`Hydrating history for task: ${taskId}...`, 'history');
+            
+            try {
+                const response = await fetch(`/swarm/status/${taskId}`);
+                if (!response.ok) throw new Error(await response.text());
+                const data = await response.json();
+                
+                if (data.previous_outputs) {
+                    data.previous_outputs.forEach(po => {
+                        appendLog(`Agent [${po.role}] completed. Findings: ${po.findings.length}`, 'history');
+                    });
+                }
+                appendLog(`State recovered successfully.`, 'complete');
+            } catch (err) {
+                appendLog(`Failed to load history: ${err.message}`, 'error');
+            }
+        });
+
+        runBtn.addEventListener('click', async () => {
+            const taskDesc = document.getElementById('task-desc').value;
+            const apiKey = document.getElementById('api-key').value;
+            if (!taskDesc || !apiKey) {
+                alert('Please provide task description and API key');
+                return;
+            }
+
+            runBtn.disabled = true;
+            statusBadge.innerText = 'STATUS: RUNNING';
+            statusBadge.classList.replace('bg-gray-800', 'bg-blue-900');
+            traceContainer.innerHTML = '';
+            appendLog(`Initiating swarm for task: ${taskDesc}...`);
+
+            try {
+                const checkedRoles = Array.from(
+                    document.querySelectorAll('.role-checkbox:checked')
+                ).map(cb => cb.value);
+                if (checkedRoles.length === 0) {
+                    alert('Select at least one agent role to run.');
+                    resetUI();
+                    return;
+                }
+                const response = await fetch('/swarm/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        task_description: taskDesc,
+                        roles: checkedRoles,
+                        api_key: apiKey
+                    })
+                });
+
+                if (!response.ok) throw new Error(await response.text());
+
+                const data = await response.json();
+                const taskId = data.task_id;
+                appendLog(`Task accepted. ID: ${taskId}. Opening event stream...`);
+
+                const eventSource = new EventSource(`/swarm/events/${taskId}`);
+
+                eventSource.onmessage = (event) => {
+                    const payload = JSON.parse(event.data);
+                    if (payload.type === 'agent_start') {
+                        appendLog(`Agent [${payload.agent}] started processing...`, 'start');
+                    } else if (payload.type === 'agent_complete') {
+                        appendLog(`Agent [${payload.agent}] completed with status: ${payload.status}`, 'complete');
+                    } else if (payload.type === 'swarm_complete') {
+                        appendLog(`🏆 SWARM COMPLETE! Task: ${payload.task_id}`, 'complete');
+                        eventSource.close();
+                        resetUI();
+                    }
+                };
+            } catch (err) {
+                appendLog(`Error: ${err.message}`, 'error');
+                resetUI();
+            }
+        });
+
+        function resetUI() {
+            runBtn.disabled = false;
+            statusBadge.innerText = 'STATUS: IDLE';
+            statusBadge.classList.replace('bg-blue-900', 'bg-gray-800');
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+[
+    {
+        "id": "EVAL_001",
+        "description": "Add a health check endpoint to FastAPI.",
+        "expected_files": ["apps/api/main.py"],
+        "expected_role": "implementer"
+    },
+    {
+        "id": "EVAL_002",
+        "description": "Create a Pydantic model for a Task object.",
+        "expected_files": ["src/agent_core/schemas.py"],
+        "expected_role": "architect"
+    }
+]
