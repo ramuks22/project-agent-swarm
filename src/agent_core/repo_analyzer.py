@@ -12,6 +12,7 @@ these specs and routes tasks — it never decides roles based on a fixed list.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from pathlib import Path
 
@@ -285,12 +286,29 @@ def _build_test_automation_spec(test_fws: list[str], frameworks: list[str]) -> A
 # ---------------------------------------------------------------------------
 
 
+def _safe_rglob(root: Path, pattern: str):
+    """
+    Safely yields matching files while aggressively pruning excluded directories
+    to prevent traversing massive nested caches or nested tool installations.
+    """
+    excludes = {".git", "node_modules", ".next", ".playwright-cli", "coverage", 
+                "dist", "build", "__pycache__", ".agent-swarm", ".venv", "venv"}
+    
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in excludes]
+        dir_p = Path(dirpath)
+        for f in filenames:
+            p = dir_p / f
+            if p.match(pattern):
+                yield p
+
+
 def _detect_languages(root: Path) -> list[str]:
     found: list[str] = []
     for lang, patterns in LANG_MARKERS.items():
         for pattern in patterns:
             if "." in pattern:
-                if list(root.rglob(pattern)):
+                if list(_safe_rglob(root, pattern)):
                     found.append(lang)
                     break
             elif (root / pattern).exists():
@@ -305,7 +323,7 @@ def _detect_frameworks(root: Path) -> list[str]:
         for marker in markers:
             if ":" in marker:
                 filename, keyword = marker.split(":", 1)
-                for f in root.rglob(filename):
+                for f in _safe_rglob(root, filename):
                     try:
                         if keyword in f.read_text(errors="ignore"):
                             found.append(fw)
@@ -313,7 +331,7 @@ def _detect_frameworks(root: Path) -> list[str]:
                     except OSError:
                         continue
             elif "*" in marker:
-                if list(root.rglob(marker)):
+                if list(_safe_rglob(root, marker)):
                     found.append(fw)
             elif (root / marker).exists():
                 found.append(fw)
@@ -329,14 +347,14 @@ def _detect_test_frameworks(root: Path) -> list[str]:
     for fw, markers in TEST_FRAMEWORK_MARKERS.items():
         for marker in markers:
             if "*" in marker:
-                if list(root.rglob(marker)):
+                if list(_safe_rglob(root, marker)):
                     found.append(fw)
                     break
             else:
                 for pattern in config_patterns:
                     if fw in found:
                         break
-                    for cfg in root.rglob(pattern):
+                    for cfg in _safe_rglob(root, pattern):
                         try:
                             if marker in cfg.read_text(errors="ignore"):
                                 found.append(fw)
@@ -354,16 +372,16 @@ def _detect_ci(root: Path) -> list[str]:
 
 def _has_migrations(root: Path) -> bool:
     return bool(
-        list(root.rglob("migrations/*.py"))
-        or list(root.rglob("db/migrate/*.rb"))
+        list(_safe_rglob(root, "migrations/*.py"))
+        or list(_safe_rglob(root, "db/migrate/*.rb"))
         or (root / "flyway.conf").exists()
-        or list(root.rglob("V*.sql"))
+        or list(_safe_rglob(root, "V*.sql"))
     )
 
 
 def _has_openapi(root: Path) -> bool:
     for pattern in ["openapi.yaml", "openapi.json", "swagger.yaml", "swagger.json"]:
-        if list(root.rglob(pattern)):
+        if list(_safe_rglob(root, pattern)):
             return True
     return False
 
@@ -374,7 +392,7 @@ def _build_module_map(root: Path, langs: list[str]) -> dict[str, list[str]]:
     exclude = {".git", "node_modules", "__pycache__", ".venv", "venv", ".agent-swarm"}
     for child in root.iterdir():
         if child.is_dir() and child.name not in exclude:
-            files = [str(f.relative_to(root)) for f in child.rglob("*") if f.is_file()]
+            files = [str(f.relative_to(root)) for f in _safe_rglob(child, "*")]
             if files:
                 module_map[child.name] = files
     return module_map

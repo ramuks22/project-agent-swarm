@@ -59,6 +59,18 @@ class TestAnalyze:
         assert meta.recommended_roles == [AgentRole.ORCHESTRATOR]
         assert meta.primary_languages == []
 
+    def test_nested_agent_swarm_is_ignored(self, tmp_path: Path) -> None:
+        # Mocking the condition where tracking installs inside a sub-folder
+        (tmp_path / ".agent-swarm").mkdir()
+        (tmp_path / ".agent-swarm" / "package.json").write_text('{"name": "ignore me"}')
+        (tmp_path / ".agent-swarm" / "hidden.go").write_text('package main')
+
+        meta = analyze(tmp_path)
+        # Verify the top level mock did not evaluate the framework leakage
+        assert "javascript" not in meta.primary_languages
+        assert "go" not in meta.primary_languages
+        assert len(meta.primary_languages) == 0
+
     def test_module_map_excludes_hidden_dirs(self, fake_repo: Path) -> None:
         meta = analyze(fake_repo)
         assert ".git" not in meta.module_map
