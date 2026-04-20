@@ -36,7 +36,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from agent_core.context_optimizer import score_files, slice_to_budget
+from agent_core.context_optimizer import pass_1_metadata_score, pass_2_content_refinement, slice_to_budget
 from agent_core.persistence import get_state_store
 from agent_core.security.tool_sandbox import is_command_safe
 from agent_core.schemas import (
@@ -126,14 +126,22 @@ def build_context(
     """
     budget = config.token_budget_per_agent
 
-    scored = score_files(
+    scored_p1 = pass_1_metadata_score(
         task_description=task_description,
         candidate_paths=file_paths,
         agent_role=agent_role,
         recently_changed=recently_changed or None,
-        error_trace=error_trace or None,
     )
-    selected = slice_to_budget(scored, token_budget=budget)
+    
+    scored_p2 = pass_2_content_refinement(
+        candidates=scored_p1,
+        task_description=task_description,
+        error_trace=error_trace or None,
+        max_reads=25,
+        preview_bytes=8192
+    )
+    
+    selected = slice_to_budget(scored_p2, token_budget=budget)
 
     snapshots: list[FileSnapshot] = [
         FileSnapshot(

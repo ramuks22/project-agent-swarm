@@ -203,10 +203,8 @@ def cmd_run(args: argparse.Namespace) -> int:
             return
 
         # Gather all source files for context (optimizer will rank and slice)
-        source_files = list(root.rglob("*.py")) + list(root.rglob("*.ts")) + \
-                       list(root.rglob("*.java")) + list(root.rglob("*.go"))
-        source_files = [f for f in source_files if ".git" not in str(f)
-                        and "node_modules" not in str(f) and "__pycache__" not in str(f)]
+        from agent_core.context_optimizer import get_eligible_candidates
+        source_files = get_eligible_candidates(root)
 
         chain = [(all_specs[r], source_files) for r in workflow_roles if r in all_specs]
         if not chain:
@@ -236,6 +234,83 @@ def cmd_run(args: argparse.Namespace) -> int:
                 return
 
     asyncio.run(_run())
+    return 0
+
+
+def cmd_optimizer_verify(args: argparse.Namespace) -> int:
+    from agent_core.context_optimizer import (
+        get_eligible_candidates,
+        pass_1_metadata_score,
+        pass_2_content_refinement,
+        slice_to_budget,
+        _is_config_file,
+    )
+    
+    task_desc = args.task
+    budget = args.budget
+    root = Path(args.root).resolve()
+    if not root.exists():
+        print(f"Error: path does not exist: {root}", file=sys.stderr)
+        return 1
+
+    print(f"Running optimizer verification for task: '{task_desc}' (budget: {budget})\\n")
+    
+    candidates = get_eligible_candidates(root)
+    print(f"Candidates found (after directory exclusions): {len(candidates)}")
+    
+    scored_pass_1 = pass_1_metadata_score(
+        task_description=task_desc,
+        candidate_paths=candidates,
+        agent_role="",
+        recently_changed=None
+    )
+    
+    print(f"Pass-1 files logically scored: {len(scored_pass_1)}")
+    
+    scored_pass_2 = pass_2_content_refinement(
+        candidates=scored_pass_1,
+        task_description=task_desc,
+        error_trace=None,
+        max_reads=25,
+        preview_bytes=8192
+    )
+    
+    previews_read = sum(1 for sf in scored_pass_2 if sf.content_loaded)
+    print(f"Pass-2 bounded previews read: {previews_read}")
+    
+    zeros = sum(1 for sf in scored_pass_2 if sf.score <= 0)
+    print(f"Zero-scored files cleanly filtered: {zeros}")
+    
+    selected = slice_to_budget(scored_pass_2, token_budget=budget, reserve_for_prompt=0)
+    
+    selected_count = len(selected)
+    artifacts = sum(1 for sf in selected if sf.score < 0)
+    configs = sum(1 for sf in selected if _is_config_file(sf.path))
+    truncated_count = sum(1 for sf in selected if sf.truncated)
+    total_estimated = sum(sf.token_count for sf in selected)
+    
+    print("\\n--- Selection Summary ---")
+    print(f"Total Selected: {selected_count}")
+    print(f"Truncated Files: {truncated_count}")
+    print(f"Config Files Included: {configs}")
+    print(f"Artifact Files Included: {artifacts} (Target: 0)")
+    print(f"Total Token Selection Estimate: {total_estimated} / {budget} ({budget - total_estimated} remaining)")
+    
+    print("\\n--- Top Selected Candidates ---")
+    if _HAS_RICH:
+        table = Table(title="Optimizer Top Selections", show_header=True, header_style="bold")
+        table.add_column("Score", justify="right", style="green")
+        table.add_column("Tokens", justify="right", style="cyan")
+        table.add_column("Path")
+        for sf in selected:
+            state = "[Trunc]" if sf.truncated else ""
+            table.add_row(f"{sf.score}", f"{state} {sf.token_count}", str(sf.path.relative_to(root)))
+        console.print(table)
+    else:
+        for sf in selected:
+            state = "[Trunc]" if sf.truncated else ""
+            print(f"[{sf.score:^5}] {state:<7} {sf.token_count:>5} tokens | {sf.path.relative_to(root)}")
+            
     return 0
 
 
@@ -310,6 +385,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--root", default=".", help="Repository root")
     p_run.add_argument("--config", default="swarm.yaml", help="Path to swarm.yaml")
 
+    # optimizer-verify
+    p_opt = sub.add_parser("optimizer-verify", help="Debug and verify the 2-pass context optimizer")
+    p_opt.add_argument("task", help="Task description string")
+    p_opt.add_argument("budget", nargs="?", type=int, default=8000, help="Token budget testing limit")
+    p_opt.add_argument("--root", default=".", help="Repository root")
+
     return parser
 
 
@@ -324,6 +405,7 @@ def main() -> None:
         "validate": cmd_validate,
         "init":     cmd_init,
         "run":      cmd_run,
+        "optimizer-verify": cmd_optimizer_verify,
     }
 
     handler = handlers.get(args.command)

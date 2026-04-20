@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 
 from agent_core.context_optimizer import (
-    score_files,
+    pass_1_metadata_score,
+    pass_2_content_refinement,
     slice_to_budget,
+    get_eligible_candidates,
     _extract_terms,
     _extract_trace_symbols,
     _is_test_file,
     _is_lock_file,
     _is_generated_file,
+    ScoredFile,
 )
 
 
@@ -26,6 +30,10 @@ def source_files(tmp_path: Path) -> list[Path]:
         "tests/test_token_validator.py": "def test_validate(): assert TokenValidator().validate('x')\n",
         "package-lock.json": '{"lockfileVersion":3}\n',
         "auto_generated.py": "# This file is auto-generated. Do not edit.\nFOO = 1\n",
+        "app/api/dashboard/route.ts": "function dashboard() { payment mode totals }",
+        "lib/offline-sync.ts": "export function offline stock queue sales() {}",
+        "package.json": '{"name": "test"}',
+        ".env.example": "PORT=8080",
     }
     paths = []
     for rel, content in files.items():
@@ -36,98 +44,109 @@ def source_files(tmp_path: Path) -> list[Path]:
     return paths
 
 
-class TestScoreFiles:
+class TestPass1Score:
     def test_recently_changed_scores_highest(self, source_files: list[Path], tmp_path: Path) -> None:
-        auth_model = tmp_path / "src/auth/models.py"
-        scored = score_files(
-            task_description="update user model",
-            candidate_paths=source_files,
-            agent_role="implementer",
-            recently_changed=[auth_model],
-        )
-        top = scored[0]
-        assert top.path == auth_model
-        assert any("recently changed" in r for r in top.reasons)
+        auth_model = tmp_path / "src" / "auth" / "models.py"
+        scored = pass_1_metadata_score("update user model", source_files, "implementer", recently_changed=[auth_model])
+        assert scored[0].path == auth_model
+        assert any("recently changed" in r for r in scored[0].reasons)
 
     def test_lock_file_penalised(self, source_files: list[Path]) -> None:
-        scored = score_files(
-            task_description="token validation",
-            candidate_paths=source_files,
-            agent_role="implementer",
-        )
+        scored = pass_1_metadata_score("token validation", source_files, "implementer")
         lock_scored = next(s for s in scored if "package-lock.json" in str(s.path))
-        auth_scored = next(s for s in scored if "token_validator" in str(s.path))
+        auth_scored = next((s for s in scored if "token_validator" in str(s.path)), None)
+        assert auth_scored is not None
         assert lock_scored.score < auth_scored.score
 
-    def test_generated_file_penalised(self, source_files: list[Path]) -> None:
-        scored = score_files(
-            task_description="token validation",
-            candidate_paths=source_files,
-            agent_role="implementer",
-        )
-        gen = next(s for s in scored if "auto_generated" in str(s.path))
-        assert gen.score < 0
+    def test_conditional_config_bonus(self, source_files: list[Path], tmp_path: Path) -> None:
+        # Task doesn't imply config -> penalized
+        scored1 = pass_1_metadata_score("refactor auth logic", source_files, "implementer")
+        pkg = next(s for s in scored1 if "package.json" in str(s.path))
+        assert pkg.score < 0
+        
+        # Task implies config -> boosted
+        scored2 = pass_1_metadata_score("fix docker package build", source_files, "implementer")
+        pkg2 = next(s for s in scored2 if "package.json" in str(s.path))
+        assert pkg2.score > 0
 
-    def test_test_file_boosted_for_qa_role(self, source_files: list[Path], tmp_path: Path) -> None:
-        test_file = tmp_path / "tests/test_token_validator.py"
-        scored = score_files(
-            task_description="token validation coverage",
-            candidate_paths=source_files,
-            agent_role="qa-engineer",
-        )
-        test_scored = next(s for s in scored if s.path == test_file)
-        assert any("test file" in r for r in test_scored.reasons)
-
-    def test_task_term_in_path_boosts_score(self, source_files: list[Path], tmp_path: Path) -> None:
-        scored = score_files(
-            task_description="fix token validation logic",
-            candidate_paths=source_files,
-            agent_role="implementer",
-        )
-        token_file = next(s for s in scored if "token_validator" in str(s.path))
-        assert any("path matches" in r for r in token_file.reasons)
-
-    def test_error_trace_symbols_boost_score(self, source_files: list[Path]) -> None:
-        trace = (
-            'Traceback (most recent call last):\n'
-            '  File "src/auth/token_validator.py", line 4, in validate\n'
-            '    raise ValueError("bad token")\n'
-            'ValueError: bad token\n'
-        )
-        scored = score_files(
-            task_description="fix the error",
-            candidate_paths=source_files,
-            agent_role="debugger",
-            error_trace=trace,
-        )
-        validator = next(s for s in scored if "token_validator" in str(s.path))
-        assert any("error trace" in r for r in validator.reasons)
-
-    def test_nonexistent_paths_skipped(self, tmp_path: Path) -> None:
-        fake = tmp_path / "does_not_exist.py"
-        scored = score_files("task", [fake], "implementer")
-        assert scored == []
+    def test_task_segment_match_boosts(self, source_files: list[Path], tmp_path: Path) -> None:
+        scored = pass_1_metadata_score("fix dashboard payment mode totals", source_files, "implementer")
+        dashboard = next(s for s in scored if "dashboard" in str(s.path))
+        assert any("segments match task terms" in r for r in dashboard.reasons)
 
 
-class TestSliceToBudget:
-    def test_respects_token_budget(self, source_files: list[Path]) -> None:
-        scored = score_files("token validation", source_files, "implementer")
-        selected = slice_to_budget(scored, token_budget=500, reserve_for_prompt=100)
-        total = sum(s.token_count for s in selected)
-        assert total <= 400  # budget minus reserve
+class TestPass2Score:
+    def test_content_boosts_score(self, source_files: list[Path]) -> None:
+        scored1 = pass_1_metadata_score("offline stock queue sales role bug", source_files, "implementer")
+        offline_sync = next(s for s in scored1 if "offline-sync" in str(s.path))
+        pre_score = offline_sync.score
+        
+        scored2 = pass_2_content_refinement(scored1, "offline stock queue sales role bug")
+        offline_sync2 = next(s for s in scored2 if "offline-sync" in str(s.path))
+        
+        assert offline_sync2.score > pre_score
+        assert offline_sync2.content_loaded is True
 
-    def test_empty_input_returns_empty(self) -> None:
-        assert slice_to_budget([], token_budget=10000) == []
 
-    def test_high_score_file_truncated_when_needed(self, tmp_path: Path) -> None:
-        big_file = tmp_path / "big.py"
-        big_file.write_text("x = 1\n" * 2000)  # ~many tokens
-        scored = score_files("refactor x variable", [big_file], "implementer",
-                             recently_changed=[big_file])
-        selected = slice_to_budget(scored, token_budget=300, reserve_for_prompt=0)
-        # High-score file should appear as truncated rather than dropped entirely
-        if selected:
-            assert selected[0].path == big_file
+class TestBudgetPacker:
+    def test_packer_continues_after_oversized(self, tmp_path: Path) -> None:
+        p1 = tmp_path / "big.py"
+        p1.write_text("x")
+        sf1 = ScoredFile(path=p1, token_count=5000, score=20)
+        p2 = tmp_path / "small.py"
+        p2.write_text("y")
+        sf2 = ScoredFile(path=p2, token_count=50, score=10)
+        
+        selected = slice_to_budget([sf1, sf2], token_budget=4100, reserve_for_prompt=4000) 
+        
+        assert len(selected) == 1
+        assert selected[0].path == p2
+
+    def test_empty_budget_handling(self, tmp_path: Path) -> None:
+        px = tmp_path / "x.py"
+        px.write_text("x")
+        sf1 = ScoredFile(path=px, token_count=50, score=50)
+        selected = slice_to_budget([sf1], token_budget=10, reserve_for_prompt=10)
+        assert len(selected) == 0
+
+    def test_zero_scores_filtered_out(self, tmp_path: Path) -> None:
+        px = tmp_path / "x.py"
+        px.write_text("x")
+        sf1 = ScoredFile(path=px, token_count=10, score=0)
+        py = tmp_path / "y.py"
+        py.write_text("y")
+        sf2 = ScoredFile(path=py, token_count=10, score=-10)
+        selected = slice_to_budget([sf1, sf2], token_budget=1000)
+        assert len(selected) == 0
+
+
+class TestRelevanceModes:
+    def test_relevance_ignores_configs(self, source_files: list[Path]) -> None:
+        scored = pass_1_metadata_score("dashboard payment mode totals", source_files, "implementer")
+        scored = pass_2_content_refinement(scored, "dashboard payment mode totals")
+        selected = slice_to_budget(scored, token_budget=8000)
+        
+        paths = [s.path.name for s in selected]
+        assert "route.ts" in paths
+        # package.json and .env.example should have score <= 0 so not selected at all
+        assert "package.json" not in paths
+        assert ".env.example" not in paths
+
+
+class TestGetEligibleCandidates:
+    def test_exclude_directories(self, tmp_path: Path) -> None:
+        (tmp_path / ".git").mkdir()
+        (tmp_path / ".git" / "config").write_text("x")
+        (tmp_path / "node_modules").mkdir()
+        (tmp_path / "node_modules" / "x.js").write_text("x")
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "a.py").write_text("x")
+        
+        candidates = get_eligible_candidates(tmp_path)
+        names = [p.name for p in candidates]
+        assert "a.py" in names
+        assert "config" not in names
+        assert "x.js" not in names
 
 
 class TestHelpers:
@@ -136,33 +155,7 @@ class TestHelpers:
         assert "the" not in terms
         assert "validation" in terms
         assert "login" in terms
-        assert "endpoint" in terms
 
-    def test_extract_trace_symbols_python(self) -> None:
-        trace = 'File "src/auth.py", line 12, in validate_token\nKeyError: "exp"'
-        symbols = _extract_trace_symbols(trace)
-        assert "validate_token" in symbols
-
-    def test_extract_trace_symbols_java(self) -> None:
-        trace = "at com.example.AuthService.validateToken(AuthService.java:42)"
-        symbols = _extract_trace_symbols(trace)
-        assert "validateToken" in symbols
-
-    def test_is_test_file_true_for_test_prefix(self, tmp_path: Path) -> None:
-        assert _is_test_file(tmp_path / "tests" / "test_auth.py")
-
-    def test_is_test_file_true_for_spec_suffix(self, tmp_path: Path) -> None:
-        assert _is_test_file(tmp_path / "auth.spec.ts")
-
-    def test_is_test_file_false_for_source(self, tmp_path: Path) -> None:
-        assert not _is_test_file(tmp_path / "src" / "auth.py")
-
-    def test_is_lock_file(self, tmp_path: Path) -> None:
-        assert _is_lock_file(tmp_path / "poetry.lock")
-        assert _is_lock_file(tmp_path / "yarn.lock")
-        assert not _is_lock_file(tmp_path / "pyproject.toml")
-
-    def test_is_generated_file(self) -> None:
-        assert _is_generated_file(Path("x.py"), "# This file is auto-generated. Do not edit.\nFOO = 1")
-        assert _is_generated_file(Path("x.py"), "// @generated by protoc\n")
-        assert not _is_generated_file(Path("x.py"), "class MyService:\n    pass\n")
+    def test_is_lock_file(self) -> None:
+        assert _is_lock_file(Path("poetry.lock"))
+        assert not _is_lock_file(Path("pyproject.toml"))

@@ -48,6 +48,9 @@ validate:
 init:
 	agent-core init
 
+optimizer-verify:
+	agent-core optimizer-verify "$(TASK)" $(BUDGET)
+
 # --- Cleanup ---
 
 clean:
@@ -74,4 +77,5 @@ help:
 	@echo "  analyze      Run agent-core analyze on current directory"
 	@echo "  validate     Validate swarm.yaml"
 	@echo "  init         Create starter swarm.yaml"
+	@echo "  optimizer-verify Run the context optimizer verifier (TASK=\"...\" BUDGET=...)"
 	@echo "  clean        Remove build artifacts and caches"

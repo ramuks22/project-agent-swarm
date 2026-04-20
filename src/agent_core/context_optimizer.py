@@ -17,6 +17,7 @@ Design:
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -54,108 +55,145 @@ def _count_tokens(text: str) -> int:
 @dataclass
 class ScoredFile:
     path: Path
-    content: str
     token_count: int
     score: float = 0.0
     reasons: list[str] = field(default_factory=list)
+    content: str | None = None
+    content_loaded: bool = False
+    truncated: bool = False
 
 
-def score_files(
+def get_eligible_candidates(root_dir: Path) -> list[Path]:
+    """Efficiently yield non-excluded file paths."""
+    excludes = {
+        ".git", "node_modules", ".next", ".playwright-cli", "coverage", 
+        "dist", "build", "__pycache__", ".agent-swarm"
+    }
+    candidates = []
+    for root, dirs, files in os.walk(root_dir):
+        # Prune excluded directories in-place so os.walk doesn't descend into them
+        dirs[:] = [d for d in dirs if d not in excludes]
+        for file in files:
+            candidates.append(Path(root) / file)
+    return candidates
+
+
+def pass_1_metadata_score(
     task_description: str,
     candidate_paths: list[Path],
     agent_role: str,
     recently_changed: list[Path] | None = None,
-    error_trace: str | None = None,
 ) -> list[ScoredFile]:
-    """
-    Score a list of candidate files for relevance to the task and agent role.
-    Returns files sorted by score descending (most relevant first).
-
-    Signals applied (additive):
-        +50  file is in recently_changed list
-        +30  filename/path contains a term from the task description
-        +20  file content contains a term from the task description
-        +15  file is a test file and role is qa-engineer or debugger
-        +15  file is an interface/schema/model file and role is architect
-        +10  file is a config file (pyproject, package.json, etc.)
-        +10  a symbol from the error_trace is referenced in this file
-        -20  file is a lock file (poetry.lock, package-lock.json, etc.)
-        -30  file is a build artifact or auto-generated file
-    """
+    """Pass 1: Score files based purely on metadata without reading contents."""
     recently_changed_set = set(recently_changed or [])
     task_terms = _extract_terms(task_description)
-    trace_symbols = _extract_trace_symbols(error_trace or "")
+    
+    config_task_terms = {"config", "build", "dependency", "package", "docker", "setup", "install"}
+    task_implies_config = any(term in config_task_terms for term in task_terms)
 
     scored: list[ScoredFile] = []
     for path in candidate_paths:
-        if not path.exists() or not path.is_file():
-            continue
         try:
-            content = path.read_text(errors="ignore")
+            st = path.stat()
+            # Estimate token count without reading
+            est_tokens = max(1, int(st.st_size / _CHARS_PER_TOKEN))
         except OSError:
             continue
 
         sf = ScoredFile(
             path=path,
-            content=content,
-            token_count=_count_tokens(content),
+            token_count=est_tokens,
         )
 
-        # --- Recency signal
         if path in recently_changed_set:
             sf.score += 50
             sf.reasons.append("recently changed")
 
-        # --- Task term in path
+        path_parts = [p.lower() for p in path.parts]
         path_str = str(path).lower()
-        matching_terms = [t for t in task_terms if t in path_str]
-        if matching_terms:
-            sf.score += 30
-            sf.reasons.append(f"path matches task terms: {matching_terms}")
+        
+        segment_matches = [t for t in task_terms if t in path_parts]
+        if segment_matches:
+            sf.score += 40
+            sf.reasons.append(f"path segments match task terms: {segment_matches}")
+            
+        substring_matches = [t for t in task_terms if t in path_str and t not in segment_matches]
+        if substring_matches:
+            sf.score += 20
+            sf.reasons.append(f"path substring matches task terms: {substring_matches}")
 
-        # --- Task term in content
-        content_lower = content.lower()
-        content_matches = [t for t in task_terms if t in content_lower]
-        if content_matches:
-            sf.score += min(20, len(content_matches) * 4)
-            sf.reasons.append(f"content matches task terms: {content_matches[:3]}")
-
-        # --- Role-specific signals
-        is_test = _is_test_file(path)
-        is_schema = _is_schema_or_model(path, content)
-        is_config = _is_config_file(path)
-
-        if agent_role in ("qa-engineer", "debugger") and is_test:
+        if agent_role in ("qa-engineer", "debugger") and _is_test_file(path):
             sf.score += 15
             sf.reasons.append("test file + qa/debug role")
 
+        # Schema detection (filename only in pass 1)
+        name = path.name.lower()
+        is_schema = "schema" in name or "model" in name or "entity" in name or "interface" in name or "types" in name or name.endswith(".prisma")
         if agent_role == "architect" and is_schema:
             sf.score += 15
             sf.reasons.append("schema/model file + architect role")
 
-        if is_config:
-            sf.score += 10
-            sf.reasons.append("config file")
+        if _is_config_file(path):
+            if task_implies_config:
+                sf.score += 10
+                sf.reasons.append("config file (task implies config)")
+            else:
+                sf.score -= 5
+                sf.reasons.append("config file (penalised, task does not imply config)")
 
-        # --- Error trace symbols
-        if trace_symbols:
-            matched_symbols = [s for s in trace_symbols if s in content]
-            if matched_symbols:
-                sf.score += min(10, len(matched_symbols) * 3)
-                sf.reasons.append(f"error trace symbols found: {matched_symbols[:2]}")
-
-        # --- Penalty signals
         if _is_lock_file(path):
             sf.score -= 20
             sf.reasons.append("lock file (penalised)")
 
-        if _is_generated_file(path, content):
-            sf.score -= 30
-            sf.reasons.append("auto-generated (penalised)")
-
         scored.append(sf)
 
     return sorted(scored, key=lambda f: f.score, reverse=True)
+
+
+def pass_2_content_refinement(
+    candidates: list[ScoredFile], 
+    task_description: str,
+    error_trace: str | None = None,
+    max_reads: int = 25, 
+    preview_bytes: int = 8192
+) -> list[ScoredFile]:
+    """Pass 2: Refine the top N candidates by previewing content chunks."""
+    task_terms = _extract_terms(task_description)
+    trace_symbols = _extract_trace_symbols(error_trace or "")
+    
+    for sf in candidates[:max_reads]:
+        try:
+            with sf.path.open("r", encoding="utf-8", errors="ignore") as f:
+                content_preview = f.read(preview_bytes)
+            
+            sf.content = content_preview
+            sf.content_loaded = True
+            
+            st_size = sf.path.stat().st_size
+            if st_size <= preview_bytes:
+                sf.token_count = _count_tokens(content_preview)
+                
+            content_lower = content_preview.lower()
+            
+            content_matches = [t for t in task_terms if t in content_lower]
+            if content_matches:
+                sf.score += min(20, len(content_matches) * 4)
+                sf.reasons.append(f"content matches task terms: {content_matches[:3]}")
+                
+            if trace_symbols:
+                matched_symbols = [s for s in trace_symbols if s in content_preview]
+                if matched_symbols:
+                    sf.score += min(10, len(matched_symbols) * 3)
+                    sf.reasons.append(f"error trace symbols found: {matched_symbols[:2]}")
+
+            if _is_generated_file(sf.path, content_preview):
+                sf.score -= 30
+                sf.reasons.append("auto-generated (penalised)")
+                
+        except OSError:
+            pass
+
+    return sorted(candidates, key=lambda f: f.score, reverse=True)
 
 
 def slice_to_budget(
@@ -163,33 +201,53 @@ def slice_to_budget(
     token_budget: int,
     reserve_for_prompt: int = 4000,
 ) -> list[ScoredFile]:
-    """
-    Select the highest-scoring files that fit within the token budget.
-    reserve_for_prompt tokens are held back for the system prompt and task text.
-    """
+    """Select the highest-scoring files sequentially fitting within the token budget."""
     available = token_budget - reserve_for_prompt
     selected: list[ScoredFile] = []
     used = 0
 
     for sf in scored_files:
+        if sf.score <= 0:
+            continue
+            
         if used + sf.token_count <= available:
-            selected.append(sf)
-            used += sf.token_count
-        else:
-            # Try to include a truncated version for very high-scoring files
-            if sf.score >= 40 and available - used > 200:
+            if not sf.content_loaded:
+                try:
+                    sf.content = sf.path.read_text(errors="ignore")
+                    sf.token_count = _count_tokens(sf.content)
+                    sf.content_loaded = True
+                except OSError:
+                    continue
+            
+            if used + sf.token_count <= available:
+                selected.append(sf)
+                used += sf.token_count
+            elif sf.score >= 40 and available - used > 300:
                 remaining = available - used
-                truncated_content = _truncate_to_tokens(sf.content, remaining - 50)
-                selected.append(ScoredFile(
-                    path=sf.path,
-                    content=truncated_content + "\n\n[... truncated to fit token budget ...]",
-                    token_count=remaining,
-                    score=sf.score,
-                    reasons=sf.reasons + ["truncated"],
-                ))
-                used = available
-            break
-
+                truncated_content = _truncate_to_tokens(sf.content or "", remaining - 50)
+                sf.content = truncated_content + "\\n\\n[... truncated to fit token budget ...]"
+                sf.token_count = remaining
+                sf.reasons.append("truncated")
+                sf.truncated = True
+                selected.append(sf)
+                used += remaining
+        else:
+            if sf.score >= 40 and available - used > 300:
+                if not sf.content_loaded:
+                    try:
+                        sf.content = sf.path.read_text(errors="ignore")
+                        sf.content_loaded = True
+                    except OSError:
+                        continue
+                remaining = available - used
+                truncated_content = _truncate_to_tokens(sf.content or "", remaining - 50)
+                sf.content = truncated_content + "\\n\\n[... truncated to fit token budget ...]"
+                sf.token_count = remaining
+                sf.reasons.append("truncated")
+                sf.truncated = True
+                selected.append(sf)
+                used += remaining
+            
     return selected
 
 
