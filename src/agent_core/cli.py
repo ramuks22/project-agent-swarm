@@ -195,7 +195,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     from agent_core.orchestrator import run_sequential
 
     async def _run() -> None:
-        all_specs = {s.name: s for s in config.agents}
+        all_specs = {str(s.role).lower(): s for s in config.agents}
         workflow_roles = _workflow_role_sequence(args.workflow, list(all_specs.keys()))
 
         if not workflow_roles:

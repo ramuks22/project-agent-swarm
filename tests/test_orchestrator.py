@@ -152,7 +152,7 @@ class TestRunSequential:
         captured_contexts: list[SwarmContext] = []
 
         async def capture_invoke(ctx: SwarmContext) -> StructuredResult:
-            captured_contexts.append(ctx)
+            captured_contexts.append(ctx.model_copy(deep=True))
             return StructuredResult(
                 task_id=ctx.task_id,
                 role="architect",
