@@ -20,10 +20,12 @@ Set your environment variables for the models you intend to use:
 
 ```bash
 export ANTHROPIC_API_KEY="sk-..."
-export GOOGLE_API_KEY="AIza..."
+export GEMINI_API_KEY="AIza..."
 # OR
 export OPENAI_API_KEY="sk-..."
 ```
+
+`GOOGLE_API_KEY` is still accepted as a deprecated fallback for Gemini, but new setups should use `GEMINI_API_KEY`.
 
 ## 3. Initialize Your Repository
 
@@ -35,9 +37,15 @@ agent-core init
 agent-core analyze --root . --output swarm.yaml
 ```
 
-## 4. Run a Sequential Swarm
+## 4. Run the Autonomous Coordinator Flow
 
-Trigger a multi-agent workflow to implement a small feature or fix a bug.
+Trigger the opt-in autonomous orchestration flow to clarify, plan, implement, verify, and review in one run.
+
+```bash
+agent-core auto --task "Add a health-check endpoint to apps/api/main.py"
+```
+
+For the legacy fixed-chain workflows, use:
 
 ```bash
 agent-core run feature-dev --task "Add a health-check endpoint to apps/api/main.py"
@@ -57,4 +65,5 @@ docker-compose up -d
 
 ## Next Steps
 - Review [DRIVERS.md](./DRIVERS.md) for advanced model configuration.
-- Check [WORKFLOWS.md](./WORKFLOWS.md) to learn how to create custom playbooks.
+- Check [AUTONOMOUS.md](./AUTONOMOUS.md) for the coordinator-driven autonomous flow.
+- Check [WORKFLOWS.md](./WORKFLOWS.md) for the legacy fixed workflow chain behavior.

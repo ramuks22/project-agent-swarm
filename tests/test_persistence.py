@@ -17,7 +17,16 @@ from pathlib import Path
 import pytest
 
 from agent_core.persistence import FileStateStore, MemoryStateStore
-from agent_core.schemas import Platform, SwarmContext
+from agent_core.schemas import (
+    ApprovalMode,
+    AutonomousFlow,
+    ExecutionPlan,
+    PlanStep,
+    Platform,
+    RunPhase,
+    SwarmContext,
+    SwarmRunState,
+)
 
 # ---------------------------------------------------------------------------
 # Shared context fixture
@@ -40,6 +49,24 @@ def another_context() -> SwarmContext:
         task_id="persist-test-002",
         task_description="A second task to verify isolation.",
         platform=Platform.CLAUDE_CODE,
+    )
+
+
+@pytest.fixture()
+def sample_run_state() -> SwarmRunState:
+    return SwarmRunState(
+        task_id="persist-run-001",
+        task_description="Autonomous feature run.",
+        platform=Platform.GEMINI,
+        approval_mode=ApprovalMode.MAJOR_GATES,
+        execute=False,
+        plan=ExecutionPlan(
+            flow=AutonomousFlow.FEATURE,
+            summary="Autonomous feature flow.",
+            steps=[
+                PlanStep(phase=RunPhase.CLARIFY, role="orchestrator", description="Clarify task.")
+            ],
+        ),
     )
 
 
@@ -112,6 +139,23 @@ class _StoreContract:
         assert loaded_1.task_id != loaded_2.task_id
         assert loaded_1.task_description == sample_context.task_description
         assert loaded_2.task_description == another_context.task_description
+
+    @pytest.mark.asyncio
+    async def test_run_state_roundtrip(self, store, sample_run_state):
+        """Run state must be persisted independently of SwarmContext."""
+        await store.save_run_state(sample_run_state)
+        loaded = await store.load_run_state(sample_run_state.task_id)
+
+        assert loaded is not None
+        assert loaded.task_id == sample_run_state.task_id
+        assert loaded.plan.flow == sample_run_state.plan.flow
+
+    @pytest.mark.asyncio
+    async def test_delete_run_state(self, store, sample_run_state):
+        await store.save_run_state(sample_run_state)
+        await store.delete_run_state(sample_run_state.task_id)
+        loaded = await store.load_run_state(sample_run_state.task_id)
+        assert loaded is None
 
 
 # ---------------------------------------------------------------------------

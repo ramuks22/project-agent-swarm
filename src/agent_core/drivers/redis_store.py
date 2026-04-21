@@ -1,5 +1,5 @@
 """
-redis_store.py — Redis-backed state store for SwarmContext checkpointing.
+redis_store.py — Redis-backed state store for SwarmContext and SwarmRunState checkpointing.
 
 L-02: Implements RedisStateStore(BaseStateStore) using redis.asyncio.
 Design decisions:
@@ -15,8 +15,10 @@ import logging
 import os
 from typing import TYPE_CHECKING
 
+from agent_core.persistence import BaseStateStore
+
 if TYPE_CHECKING:
-    from agent_core.schemas import SwarmContext
+    from agent_core.schemas import SwarmContext, SwarmRunState
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +26,9 @@ logger = logging.getLogger(__name__)
 import redis.asyncio as aioredis  # noqa: E402
 
 
-class RedisStateStore:
+class RedisStateStore(BaseStateStore):
     """
-    Saves SwarmContext checkpoints as JSON strings in Redis with TTL-based expiry.
+    Saves SwarmContext and SwarmRunState checkpoints as JSON strings in Redis with TTL-based expiry.
 
     Key format:  agent_swarm:context:{task_id}
     Value format: SwarmContext.model_dump_json() (same serialisation as FileStateStore)
@@ -62,6 +64,10 @@ class RedisStateStore:
     def _key(task_id: str) -> str:
         return f"agent_swarm:context:{task_id}"
 
+    @staticmethod
+    def _run_state_key(task_id: str) -> str:
+        return f"agent_swarm:run_state:{task_id}"
+
     async def save(self, context: SwarmContext) -> None:
         key = self._key(context.task_id)
         await self._client.set(key, context.model_dump_json(), ex=self._ttl)
@@ -82,6 +88,27 @@ class RedisStateStore:
 
     async def delete(self, task_id: str) -> None:
         await self._client.delete(self._key(task_id))
+
+    async def save_run_state(self, state: SwarmRunState) -> None:
+        key = self._run_state_key(state.task_id)
+        await self._client.set(key, state.model_dump_json(), ex=self._ttl)
+        logger.debug("Redis run state saved: %s (TTL=%ds)", key, self._ttl)
+
+    async def load_run_state(self, task_id: str) -> SwarmRunState | None:
+        from agent_core.schemas import SwarmRunState as _SRS
+
+        key = self._run_state_key(task_id)
+        data = await self._client.get(key)
+        if not data:
+            return None
+        try:
+            return _SRS.model_validate_json(data)
+        except Exception as exc:
+            logger.error("Failed to deserialise Redis run state for %s: %s", task_id, exc)
+            return None
+
+    async def delete_run_state(self, task_id: str) -> None:
+        await self._client.delete(self._run_state_key(task_id))
 
     async def close(self) -> None:
         """Close the Redis connection pool. Call at app shutdown."""

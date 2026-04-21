@@ -78,6 +78,48 @@ class StateStoreType(StrEnum):
     MEMORY = "memory"
 
 
+class AutonomousFlow(StrEnum):
+    FEATURE = "feature"
+    BUGFIX = "bugfix"
+    REVIEW_ONLY = "review-only"
+    TEST_GENERATION = "test-generation"
+
+
+class RunPhase(StrEnum):
+    CLARIFY = "clarify"
+    DESIGN = "design"
+    IMPLEMENT = "implement"
+    VERIFY = "verify"
+    DEBUG = "debug"
+    REVIEW = "review"
+    FINALIZE = "finalize"
+    COMPLETED = "completed"
+
+
+class ApprovalMode(StrEnum):
+    MAJOR_GATES = "major_gates"
+    NONE = "none"
+
+
+class GateType(StrEnum):
+    CLARIFICATION_REQUIRED = "clarification_required"
+    REQUIREMENTS_LOCKED = "requirements_locked"
+    DESIGN_LOCKED = "design_locked"
+    RELEASE_READY = "release_ready"
+
+
+class GateStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    AUTO_APPROVED = "auto_approved"
+
+
+class GateDecision(StrEnum):
+    APPROVE = "approve"
+    REJECT = "reject"
+
+
 # ---------------------------------------------------------------------------
 # Agent definition (the thing you configure)
 # ---------------------------------------------------------------------------
@@ -253,6 +295,49 @@ class StructuredResult(BaseModel, extra="forbid"):
         return self
 
 
+class ClarificationQuestion(BaseModel, extra="forbid"):
+    id: str
+    prompt: str
+    rationale: str = ""
+
+
+class PlanStep(BaseModel, extra="forbid"):
+    phase: RunPhase
+    role: str
+    description: str
+    status: TaskStatus = TaskStatus.PENDING
+
+
+class ExecutionPlan(BaseModel, extra="forbid"):
+    flow: AutonomousFlow
+    summary: str
+    requirements: list[str] = Field(default_factory=list)
+    acceptance_criteria: list[str] = Field(default_factory=list)
+    clarification_questions: list[ClarificationQuestion] = Field(default_factory=list)
+    steps: list[PlanStep] = Field(default_factory=list)
+
+
+class GateRecord(BaseModel, extra="forbid"):
+    gate_id: str
+    gate_type: GateType
+    status: GateStatus = GateStatus.PENDING
+    comments: str = ""
+
+
+class ExecutorCommandResult(BaseModel, extra="forbid"):
+    command: str
+    returncode: int
+    stdout: str = ""
+    stderr: str = ""
+
+
+class ExecutorOutcome(BaseModel, extra="forbid"):
+    status: TaskStatus
+    applied_paths: list[str] = Field(default_factory=list)
+    command_results: list[ExecutorCommandResult] = Field(default_factory=list)
+    failure_reason: Optional[str] = None
+
+
 # ---------------------------------------------------------------------------
 # Repo metadata — populated by the repo_analyzer
 # ---------------------------------------------------------------------------
@@ -281,6 +366,28 @@ class RepoMetadata(BaseModel, extra="forbid"):
     # Full definitions for every role in recommended_roles.
     # Populated by repo_analyzer.analyze() from custom logic + built-in templates.
     agent_specs: list[AgentSpec] = Field(default_factory=list)
+
+
+class SwarmRunState(BaseModel, extra="forbid"):
+    task_id: str
+    task_description: str
+    platform: Platform
+    status: TaskStatus = TaskStatus.PENDING
+    quality_gate_strict: bool = True
+    current_phase: RunPhase = RunPhase.CLARIFY
+    approval_mode: ApprovalMode = ApprovalMode.MAJOR_GATES
+    execute: bool = False
+    plan: ExecutionPlan
+    pending_gate: Optional[GateRecord] = None
+    gate_history: list[GateRecord] = Field(default_factory=list)
+    retry_counts: dict[str, int] = Field(default_factory=dict)
+    changed_artifacts: list[str] = Field(default_factory=list)
+    previous_outputs: list[AgentOutput] = Field(default_factory=list)
+    phase_results: list[StructuredResult] = Field(default_factory=list)
+    executor_outcomes: list[ExecutorOutcome] = Field(default_factory=list)
+    repo_metadata: Optional[RepoMetadata] = None
+    completion_summary: str = ""
+    escalation_reason: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -352,3 +459,4 @@ class SwarmConfig(BaseModel, extra="forbid"):
 
 # Update forward references
 SwarmContext.model_rebuild()
+SwarmRunState.model_rebuild()

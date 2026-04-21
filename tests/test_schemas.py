@@ -7,14 +7,24 @@ from pydantic import ValidationError
 
 from agent_core.schemas import (
     AgentSpec,
+    ApprovalMode,
+    AutonomousFlow,
+    ClarificationQuestion,
+    ExecutionPlan,
     FileDiff,
+    GateRecord,
+    GateStatus,
+    GateType,
+    PlanStep,
     Platform,
     QualityGate,
     ReviewFinding,
+    RunPhase,
     Severity,
     StructuredResult,
     SwarmConfig,
     SwarmContext,
+    SwarmRunState,
     TaskStatus,
     ToolPermission,
 )
@@ -169,4 +179,56 @@ class TestSwarmContext:
                 task_description="x",
                 platform=Platform.CLAUDE_CODE,
                 sneaky_field="should fail",  # type: ignore[call-arg]
+            )
+
+
+class TestAutonomousModels:
+    def test_execution_plan_valid(self) -> None:
+        plan = ExecutionPlan(
+            flow=AutonomousFlow.FEATURE,
+            summary="Feature delivery plan.",
+            requirements=["Add health endpoint."],
+            acceptance_criteria=["Endpoint responds with 200."],
+            clarification_questions=[
+                ClarificationQuestion(id="scope", prompt="Which router should own it?")
+            ],
+            steps=[
+                PlanStep(phase=RunPhase.CLARIFY, role="orchestrator", description="Clarify scope."),
+                PlanStep(phase=RunPhase.DESIGN, role="architect", description="Design change."),
+            ],
+        )
+        assert plan.flow == AutonomousFlow.FEATURE
+        assert plan.steps[0].phase == RunPhase.CLARIFY
+
+    def test_swarm_run_state_valid(self) -> None:
+        plan = ExecutionPlan(
+            flow=AutonomousFlow.BUGFIX,
+            summary="Bugfix plan.",
+            steps=[PlanStep(phase=RunPhase.CLARIFY, role="orchestrator", description="Clarify bug.")],
+        )
+        state = SwarmRunState(
+            task_id="auto-1",
+            task_description="Fix login bug",
+            platform=Platform.CLAUDE_CODE,
+            approval_mode=ApprovalMode.MAJOR_GATES,
+            execute=False,
+            plan=plan,
+            pending_gate=GateRecord(gate_id="g1", gate_type=GateType.REQUIREMENTS_LOCKED),
+        )
+        assert state.pending_gate is not None
+        assert state.pending_gate.status == GateStatus.PENDING
+
+    def test_swarm_run_state_rejects_extra_fields(self) -> None:
+        plan = ExecutionPlan(
+            flow=AutonomousFlow.REVIEW_ONLY,
+            summary="Review plan.",
+            steps=[PlanStep(phase=RunPhase.REVIEW, role="reviewer", description="Review files.")],
+        )
+        with pytest.raises(ValidationError):
+            SwarmRunState(  # type: ignore[call-arg]
+                task_id="auto-2",
+                task_description="Review code",
+                platform=Platform.CLAUDE_CODE,
+                plan=plan,
+                unexpected=True,
             )

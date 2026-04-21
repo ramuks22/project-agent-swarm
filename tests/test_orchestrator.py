@@ -8,15 +8,23 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from agent_core.orchestrator import (
+    ParallelConflictError,
     _detect_conflicts,
     _write_result,
     build_context,
+    resume_autonomous,
+    run_autonomous,
+    run_parallel,
     run_sequential,
 )
 from agent_core.schemas import (
     AgentOutput,
     AgentSpec,
+    ApprovalMode,
+    GateDecision,
+    GateType,
     ReviewFinding,
+    RunPhase,
     Severity,
     StructuredResult,
     SwarmConfig,
@@ -245,6 +253,8 @@ class TestDetectConflicts:
     ) -> None:
         import logging
 
+        non_strict = minimal_config.model_copy(update={"quality_gate_strict": False})
+
         results = [
             StructuredResult(
                 task_id="t1",
@@ -268,5 +278,317 @@ class TestDetectConflicts:
             ),
         ]
         with caplog.at_level(logging.WARNING):
-            _detect_conflicts(results, minimal_config)
+            _detect_conflicts(results, non_strict)
         assert any("Conflicting" in m for m in caplog.messages)
+
+    def test_conflict_raises_in_strict_mode(self, minimal_config: SwarmConfig) -> None:
+        results = [
+            StructuredResult(
+                task_id="t1",
+                role="reviewer-a",
+                status=TaskStatus.DONE,
+                summary="x",
+                findings=[
+                    ReviewFinding(file="auth.py", severity=Severity.BLOCKER, description="Critical.")
+                ],
+            ),
+            StructuredResult(
+                task_id="t1",
+                role="reviewer-b",
+                status=TaskStatus.DONE,
+                summary="x",
+                findings=[ReviewFinding(file="auth.py", severity=Severity.NIT, description="Minor.")],
+            ),
+        ]
+        with pytest.raises(ParallelConflictError):
+            _detect_conflicts(results, minimal_config)
+
+
+def _make_result(
+    role: str,
+    *,
+    status: TaskStatus = TaskStatus.DONE,
+    summary: str = "ok",
+    findings: list[ReviewFinding] | None = None,
+) -> StructuredResult:
+    payload = {
+        "task_id": "auto-task",
+        "role": role,
+        "status": status,
+        "summary": summary,
+    }
+    if findings:
+        payload["findings"] = findings
+    if status == TaskStatus.ESCALATED:
+        payload["escalation_reason"] = "phase failed"
+    return StructuredResult.model_validate(payload)
+
+
+def _driver_factory(results_by_role: dict[str, list[StructuredResult]]):
+    def _factory(platform, spec, api_key, **kwargs):
+        queue = results_by_role[str(spec.role)]
+        driver = MagicMock()
+        driver.invoke = AsyncMock(side_effect=lambda ctx: queue.pop(0))
+        return driver
+
+    return _factory
+
+
+class TestAutonomousFlow:
+    async def test_clarification_required_for_ambiguous_task(
+        self, autonomous_config: SwarmConfig, fake_repo: Path
+    ) -> None:
+        state = await run_autonomous(
+            task_description="Fix it",
+            config=autonomous_config,
+            api_key="test-key",
+            repo_root=fake_repo,
+            approval_mode=ApprovalMode.NONE,
+        )
+
+        assert state.status == TaskStatus.PENDING
+        assert state.pending_gate is not None
+        assert state.pending_gate.gate_type == GateType.CLARIFICATION_REQUIRED
+
+    async def test_major_gate_pause_and_resume(
+        self, autonomous_config: SwarmConfig, fake_repo: Path
+    ) -> None:
+        results = {
+            "architect": [_make_result("architect", summary="Design complete.")],
+            "implementer": [_make_result("implementer", summary="Implementation complete.")],
+            "qa-engineer": [_make_result("qa-engineer", summary="Verification complete.")],
+            "reviewer": [_make_result("reviewer", summary="Review complete.")],
+        }
+
+        with patch("agent_core.orchestrator._get_driver", side_effect=_driver_factory(results)):
+            state = await run_autonomous(
+                task_description="Add health endpoint\n- Return 200 OK",
+                config=autonomous_config,
+                api_key="test-key",
+                repo_root=fake_repo,
+                approval_mode=ApprovalMode.MAJOR_GATES,
+            )
+
+            assert state.pending_gate is not None
+            assert state.pending_gate.gate_type == GateType.REQUIREMENTS_LOCKED
+
+            state = await resume_autonomous(
+                task_id=state.task_id,
+                config=autonomous_config,
+                api_key="test-key",
+                repo_root=fake_repo,
+                decision=GateDecision.APPROVE,
+            )
+            assert state.pending_gate is not None
+            assert state.pending_gate.gate_type == GateType.DESIGN_LOCKED
+
+            state = await resume_autonomous(
+                task_id=state.task_id,
+                config=autonomous_config,
+                api_key="test-key",
+                repo_root=fake_repo,
+                decision=GateDecision.APPROVE,
+            )
+            assert state.pending_gate is not None
+            assert state.pending_gate.gate_type == GateType.RELEASE_READY
+
+            state = await resume_autonomous(
+                task_id=state.task_id,
+                config=autonomous_config,
+                api_key="test-key",
+                repo_root=fake_repo,
+                decision=GateDecision.APPROVE,
+            )
+
+        assert state.status == TaskStatus.DONE
+        assert state.current_phase == RunPhase.COMPLETED
+        assert len(state.gate_history) == 3
+
+    async def test_bugfix_flow_completes_without_major_gate_pauses(
+        self, autonomous_config: SwarmConfig, fake_repo: Path
+    ) -> None:
+        results = {
+            "debugger": [_make_result("debugger", summary="Bug fixed.")],
+            "qa-engineer": [_make_result("qa-engineer", summary="Regression verified.")],
+            "reviewer": [_make_result("reviewer", summary="Review complete.")],
+        }
+
+        with patch("agent_core.orchestrator._get_driver", side_effect=_driver_factory(results)):
+            state = await run_autonomous(
+                task_description="Fix login bug in auth flow",
+                config=autonomous_config,
+                api_key="test-key",
+                repo_root=fake_repo,
+                approval_mode=ApprovalMode.NONE,
+            )
+
+        assert state.plan.flow.value == "bugfix"
+        assert state.status == TaskStatus.DONE
+        assert state.current_phase == RunPhase.COMPLETED
+
+    async def test_verify_failure_routes_to_debugger(
+        self, autonomous_config: SwarmConfig, fake_repo: Path
+    ) -> None:
+        results = {
+            "architect": [_make_result("architect", summary="Design complete.")],
+            "implementer": [_make_result("implementer", summary="Implementation complete.")],
+            "qa-engineer": [
+                _make_result(
+                    "qa-engineer",
+                    summary="Verification failed.",
+                    findings=[
+                        ReviewFinding(
+                            file="src/main.py",
+                            severity=Severity.BLOCKER,
+                            description="Behavior still fails.",
+                        )
+                    ],
+                ),
+                _make_result("qa-engineer", summary="Verification complete."),
+            ],
+            "debugger": [_make_result("debugger", summary="Root cause fixed.")],
+            "reviewer": [_make_result("reviewer", summary="Review complete.")],
+        }
+
+        with patch("agent_core.orchestrator._get_driver", side_effect=_driver_factory(results)):
+            state = await run_autonomous(
+                task_description="Add health endpoint\n- Return 200 OK",
+                config=autonomous_config,
+                api_key="test-key",
+                repo_root=fake_repo,
+                approval_mode=ApprovalMode.NONE,
+            )
+
+        assert state.status == TaskStatus.DONE
+        assert state.retry_counts["debugger"] == 1
+        assert [result.role for result in state.phase_results] == [
+            "architect",
+            "implementer",
+            "qa-engineer",
+            "debugger",
+            "qa-engineer",
+            "reviewer",
+        ]
+
+    async def test_review_findings_route_back_to_implementer(
+        self, autonomous_config: SwarmConfig, fake_repo: Path
+    ) -> None:
+        results = {
+            "architect": [_make_result("architect", summary="Design complete.")],
+            "implementer": [
+                _make_result("implementer", summary="Implementation pass 1."),
+                _make_result("implementer", summary="Implementation pass 2."),
+            ],
+            "qa-engineer": [
+                _make_result("qa-engineer", summary="Verification pass 1."),
+                _make_result("qa-engineer", summary="Verification pass 2."),
+            ],
+            "reviewer": [
+                _make_result(
+                    "reviewer",
+                    summary="Review found issues.",
+                    findings=[
+                        ReviewFinding(
+                            file="src/main.py",
+                            severity=Severity.MAJOR,
+                            description="Missing edge case handling.",
+                        )
+                    ],
+                ),
+                _make_result("reviewer", summary="Review complete."),
+            ],
+        }
+
+        with patch("agent_core.orchestrator._get_driver", side_effect=_driver_factory(results)):
+            state = await run_autonomous(
+                task_description="Add health endpoint\n- Return 200 OK",
+                config=autonomous_config,
+                api_key="test-key",
+                repo_root=fake_repo,
+                approval_mode=ApprovalMode.NONE,
+            )
+
+        assert state.status == TaskStatus.DONE
+        assert state.retry_counts["implementer"] == 1
+        assert [result.role for result in state.phase_results] == [
+            "architect",
+            "implementer",
+            "qa-engineer",
+            "reviewer",
+            "implementer",
+            "qa-engineer",
+            "reviewer",
+        ]
+
+    async def test_retry_exhaustion_escalates(
+        self, autonomous_config: SwarmConfig, fake_repo: Path, debugger_spec: AgentSpec
+    ) -> None:
+        config = autonomous_config.model_copy(
+            update={
+                "agents": [
+                    spec.model_copy(update={"escalation": debugger_spec.escalation.model_copy(update={"max_retries": 0})})
+                    if str(spec.role) == "debugger"
+                    else spec
+                    for spec in autonomous_config.agents
+                ]
+            }
+        )
+        results = {
+            "architect": [_make_result("architect", summary="Design complete.")],
+            "implementer": [_make_result("implementer", summary="Implementation complete.")],
+            "qa-engineer": [
+                _make_result(
+                    "qa-engineer",
+                    summary="Verification failed.",
+                    findings=[
+                        ReviewFinding(
+                            file="src/main.py",
+                            severity=Severity.BLOCKER,
+                            description="Still broken.",
+                        )
+                    ],
+                )
+            ],
+        }
+
+        with patch("agent_core.orchestrator._get_driver", side_effect=_driver_factory(results)):
+            state = await run_autonomous(
+                task_description="Add health endpoint\n- Return 200 OK",
+                config=config,
+                api_key="test-key",
+                repo_root=fake_repo,
+                approval_mode=ApprovalMode.NONE,
+            )
+
+        assert state.status == TaskStatus.ESCALATED
+
+
+class TestRunParallel:
+    async def test_parallel_conflict_raises(
+        self, minimal_spec: AgentSpec, minimal_config: SwarmConfig
+    ) -> None:
+        reviewer_a = minimal_spec.model_copy(update={"role": "reviewer-a", "name": "reviewer-a"})
+        reviewer_b = minimal_spec.model_copy(update={"role": "reviewer-b", "name": "reviewer-b"})
+        results = {
+            "reviewer-a": [
+                _make_result(
+                    "reviewer-a",
+                    findings=[ReviewFinding(file="auth.py", severity=Severity.BLOCKER, description="Critical.")],
+                )
+            ],
+            "reviewer-b": [
+                _make_result(
+                    "reviewer-b",
+                    findings=[ReviewFinding(file="auth.py", severity=Severity.NIT, description="Minor.")],
+                )
+            ],
+        }
+
+        with patch("agent_core.orchestrator._get_driver", side_effect=_driver_factory(results)):
+            with pytest.raises(ParallelConflictError):
+                await run_parallel(
+                    task_description="Review auth module",
+                    agent_tasks=[(reviewer_a, []), (reviewer_b, [])],
+                    config=minimal_config,
+                    api_key="test-key",
+                )

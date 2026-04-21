@@ -25,6 +25,7 @@ try:
     _HAS_RESPX = True
 except ImportError:
     _HAS_RESPX = False
+    pytest.skip("respx not installed", allow_module_level=True)
 
 from agent_core.schemas import (
     AgentSpec,
@@ -34,9 +35,6 @@ from agent_core.schemas import (
     TaskStatus,
     ToolPermission,
 )
-
-pytestmark = pytest.mark.skipif(not _HAS_RESPX, reason="respx not installed")
-
 
 # ---------------------------------------------------------------------------
 # Shared helpers

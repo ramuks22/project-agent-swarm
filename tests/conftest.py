@@ -52,6 +52,58 @@ def architect_spec() -> AgentSpec:
     )
 
 
+@pytest.fixture()
+def orchestrator_spec() -> AgentSpec:
+    return AgentSpec(
+        name="orchestrator",
+        role="orchestrator",
+        description="Coordinate work.",
+        responsibilities=["Clarify.", "Route specialists.", "Synthesize output."],
+        quality_gates=[QualityGate(description="Plan is coherent.")],
+        tools_allowed=[ToolPermission(name="Read")],
+        out_of_scope=["Writing implementation code."],
+    )
+
+
+@pytest.fixture()
+def qa_spec() -> AgentSpec:
+    return AgentSpec(
+        name="qa-engineer",
+        role="qa-engineer",
+        description="Verify behavior.",
+        responsibilities=["Write or validate tests."],
+        quality_gates=[QualityGate(description="Tests pass.")],
+        tools_allowed=[ToolPermission(name="Read")],
+        out_of_scope=["Writing implementation code."],
+    )
+
+
+@pytest.fixture()
+def reviewer_spec() -> AgentSpec:
+    return AgentSpec(
+        name="reviewer",
+        role="reviewer",
+        description="Review changes.",
+        responsibilities=["Review changed files."],
+        quality_gates=[QualityGate(description="Findings are actionable.")],
+        tools_allowed=[ToolPermission(name="Read")],
+        out_of_scope=["Fixing implementation directly."],
+    )
+
+
+@pytest.fixture()
+def debugger_spec() -> AgentSpec:
+    return AgentSpec(
+        name="debugger",
+        role="debugger",
+        description="Debug failures.",
+        responsibilities=["Diagnose root cause.", "Propose minimal fix."],
+        quality_gates=[QualityGate(description="Root cause is identified.")],
+        tools_allowed=[ToolPermission(name="Read")],
+        out_of_scope=["Designing new features."],
+    )
+
+
 # ---------------------------------------------------------------------------
 # SwarmConfig fixture
 # ---------------------------------------------------------------------------
@@ -65,6 +117,34 @@ def minimal_config(tmp_path: Path) -> SwarmConfig:
         max_parallel_agents=1,
         quality_gate_strict=True,
         output_dir=tmp_path / "outputs",
+    )
+
+
+@pytest.fixture()
+def autonomous_config(
+    tmp_path: Path,
+    orchestrator_spec: AgentSpec,
+    architect_spec: AgentSpec,
+    minimal_spec: AgentSpec,
+    qa_spec: AgentSpec,
+    reviewer_spec: AgentSpec,
+    debugger_spec: AgentSpec,
+) -> SwarmConfig:
+    return SwarmConfig(
+        platform=Platform.CLAUDE_CODE,
+        agents=[
+            orchestrator_spec,
+            architect_spec,
+            minimal_spec,
+            qa_spec,
+            reviewer_spec,
+            debugger_spec,
+        ],
+        token_budget_per_agent=10_000,
+        max_parallel_agents=1,
+        quality_gate_strict=True,
+        output_dir=tmp_path / "outputs",
+        state_dir=tmp_path / "state",
     )
 
 

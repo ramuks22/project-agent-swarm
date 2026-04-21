@@ -394,7 +394,7 @@ def _truncate_to_tokens(text: str, max_tokens: int) -> str:
             tokens = _ENCODING.encode(text, disallowed_special=())
             if len(tokens) <= max_tokens:
                 return text
-            return _ENCODING.decode(tokens[:max_tokens])
+            return str(_ENCODING.decode(tokens[:max_tokens]))
         except Exception:
             pass
     # Fallback: truncate by character count

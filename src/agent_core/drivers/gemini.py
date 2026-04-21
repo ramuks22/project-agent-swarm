@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import cast
 
 import httpx
 
@@ -45,6 +46,11 @@ class GeminiDriver(BaseAgentDriver):
 
     def __init__(self, spec: AgentSpec, api_key: str | None = None, **kwargs: object) -> None:
         resolved_key = api_key or os.environ.get("GEMINI_API_KEY", "")
+        if not resolved_key:
+            legacy_key = os.environ.get("GOOGLE_API_KEY", "")
+            if legacy_key:
+                logger.warning("GOOGLE_API_KEY is deprecated. Prefer GEMINI_API_KEY.")
+                resolved_key = legacy_key
         use_vertex = bool(kwargs.get("use_vertex", False))
         if not resolved_key and not use_vertex:
             raise DriverError(
@@ -54,7 +60,10 @@ class GeminiDriver(BaseAgentDriver):
             )
         super().__init__(spec, resolved_key, **kwargs)
         self._model: str = str(kwargs.get("model", DEFAULT_MODEL))
-        self._max_tokens: int = int(kwargs.get("max_tokens", MAX_OUTPUT_TOKENS))  # type: ignore[arg-type]
+        max_tokens = kwargs.get("max_tokens", MAX_OUTPUT_TOKENS)
+        self._max_tokens = (
+            int(max_tokens) if isinstance(max_tokens, (int, str)) else MAX_OUTPUT_TOKENS
+        )
         self._use_vertex: bool = use_vertex
         self._project: str = str(kwargs.get("project", ""))
         self._location: str = str(kwargs.get("location", "us-central1"))
@@ -75,7 +84,7 @@ class GeminiDriver(BaseAgentDriver):
         "Pattern for prose: [thing] [action] [reason]. [next step].\n"
     )
 
-    def _build_messages(self, context: SwarmContext) -> list[dict]:
+    def _build_messages(self, context: SwarmContext) -> dict[str, object]:
         # Gemini uses a "contents" array with "parts"
         base_system = self._build_system_prompt(context)
         if self._concise_mode:
@@ -98,20 +107,20 @@ class GeminiDriver(BaseAgentDriver):
         )
 
         # Gemini system instruction is separate from contents
-        return {  # type: ignore[return-value]
+        return {
             "system_instruction": {"parts": [{"text": system_text}]},
             "contents": [{"role": "user", "parts": [{"text": user_text}]}],
         }
 
     async def _call_api(self, messages: object, context: SwarmContext) -> str:
-        payload = messages  # type: ignore[assignment]  # dict from _build_messages
+        payload = cast(dict[str, object], messages)
 
-        generation_config = {
+        generation_config: dict[str, object] = {
             "maxOutputTokens": self._max_tokens,
             "responseMimeType": "application/json",
         }
 
-        body = {**payload, "generationConfig": generation_config}  # type: ignore[arg-type]
+        body: dict[str, object] = {**payload, "generationConfig": generation_config}
 
         if self._use_vertex:
             url = (
@@ -141,13 +150,25 @@ class GeminiDriver(BaseAgentDriver):
             raise DriverError(f"Gemini API error {resp.status_code}: {resp.text[:500]}")
 
         data = resp.json()
+        if not isinstance(data, dict):
+            raise MalformedResponseError("Gemini returned a non-object response payload")
         try:
             candidates = data["candidates"]
-            if not candidates:
+            if not isinstance(candidates, list) or not candidates:
                 raise MalformedResponseError("Gemini returned no candidates")
-            parts = candidates[0]["content"]["parts"]
-            return "".join(p.get("text", "") for p in parts)
-        except (KeyError, IndexError) as exc:
+            first_candidate = candidates[0]
+            if not isinstance(first_candidate, dict):
+                raise MalformedResponseError("Gemini candidate payload had an invalid shape")
+            content = first_candidate["content"]
+            if not isinstance(content, dict):
+                raise MalformedResponseError("Gemini candidate content had an invalid shape")
+            parts = content["parts"]
+            if not isinstance(parts, list):
+                raise MalformedResponseError("Gemini parts payload had an invalid shape")
+            return "".join(
+                str(part.get("text", "")) for part in parts if isinstance(part, dict)
+            )
+        except (KeyError, IndexError, TypeError) as exc:
             raise MalformedResponseError(f"Unexpected Gemini response shape: {exc}") from exc
 
     def _parse_response(self, raw: str, context: SwarmContext) -> StructuredResult:

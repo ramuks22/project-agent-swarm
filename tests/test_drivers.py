@@ -231,3 +231,16 @@ class TestBuildSystemPrompt:
         driver = EchoDriver(minimal_spec)
         prompt = driver._build_system_prompt(minimal_context)
         assert "8000" in prompt  # from minimal_context constraints
+
+
+class TestGeminiEnvFallback:
+    def test_gemini_driver_uses_legacy_google_api_key(
+        self, minimal_spec: AgentSpec, monkeypatch
+    ) -> None:
+        from agent_core.drivers.gemini import GeminiDriver
+
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.setenv("GOOGLE_API_KEY", "legacy-key")
+
+        driver = GeminiDriver(minimal_spec)
+        assert driver._api_key == "legacy-key"

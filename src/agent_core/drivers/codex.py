@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import cast
 
 import httpx
 
@@ -51,7 +52,8 @@ class CodexDriver(BaseAgentDriver):
             )
         super().__init__(spec, resolved_key, **kwargs)
         self._model: str = str(kwargs.get("model", DEFAULT_MODEL))
-        self._max_tokens: int = int(kwargs.get("max_tokens", MAX_TOKENS))  # type: ignore[arg-type]
+        max_tokens = kwargs.get("max_tokens", MAX_TOKENS)
+        self._max_tokens = int(max_tokens) if isinstance(max_tokens, (int, str)) else MAX_TOKENS
         self._structured_outputs: bool = bool(kwargs.get("structured_outputs", True))
         self._is_reasoning_model: bool = any(self._model.startswith(m) for m in REASONING_MODELS)
 
@@ -59,7 +61,7 @@ class CodexDriver(BaseAgentDriver):
     # BaseAgentDriver implementation
     # ------------------------------------------------------------------
 
-    def _build_messages(self, context: SwarmContext) -> list[dict]:
+    def _build_messages(self, context: SwarmContext) -> list[dict[str, str]]:
         system = self._build_system_prompt(context)
 
         file_block = "\n\n".join(
@@ -83,15 +85,16 @@ class CodexDriver(BaseAgentDriver):
             {"role": "user", "content": user_content},
         ]
 
-    async def _call_api(self, messages: list[dict], context: SwarmContext) -> str:
+    async def _call_api(self, messages: object, context: SwarmContext) -> str:
+        typed_messages = cast(list[dict[str, object]], messages)
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
         }
 
-        body: dict = {
+        body: dict[str, object] = {
             "model": self._model,
-            "messages": messages,
+            "messages": typed_messages,
         }
 
         # Reasoning models use max_completion_tokens
@@ -113,8 +116,10 @@ class CodexDriver(BaseAgentDriver):
             raise DriverError(f"OpenAI API error {resp.status_code}: {resp.text[:500]}")
 
         data = resp.json()
+        if not isinstance(data, dict):
+            raise MalformedResponseError("OpenAI returned a non-object response payload")
         try:
-            return data["choices"][0]["message"]["content"]
+            return str(data["choices"][0]["message"]["content"])
         except (KeyError, IndexError) as exc:
             raise MalformedResponseError(f"Unexpected Codex response shape: {exc}") from exc
 

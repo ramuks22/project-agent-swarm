@@ -1,6 +1,9 @@
-# Workflow Guide
+# Workflow Guide (Legacy Fixed Chains)
 
-Workflows are pre-defined sequences of agent roles designed to solve specific types of technical tasks. The **Agent Swarm** orchestrator executes these chains sequentially, passing the cumulative state (diffs, findings, summaries) from one agent to the next.
+These workflows are the legacy fixed-chain mode. They remain supported for stable,
+predictable role sequences, but they do not provide the coordinator-driven
+clarify / gate / reroute loop of the autonomous flow. See [AUTONOMOUS.md](./AUTONOMOUS.md)
+for the real agentic orchestration path.
 
 ## Standard Workflows
 

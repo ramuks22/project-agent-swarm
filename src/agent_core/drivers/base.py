@@ -18,7 +18,7 @@ import ast
 import json
 import logging
 import operator as _op
-from typing import Any, Optional, final
+from typing import Any, Callable, Optional, final
 
 from tenacity import (
     AsyncRetrying,
@@ -117,7 +117,7 @@ class BaseAgentDriver(abc.ABC):
     # ------------------------------------------------------------------
 
     @abc.abstractmethod
-    def _build_messages(self, context: SwarmContext) -> list[dict]:
+    def _build_messages(self, context: SwarmContext) -> object:
         """
         Translate SwarmContext into the platform's native message format.
 
@@ -135,7 +135,7 @@ class BaseAgentDriver(abc.ABC):
         """
 
     @abc.abstractmethod
-    async def _call_api(self, messages: list[dict], context: SwarmContext) -> str:
+    async def _call_api(self, messages: object, context: SwarmContext) -> str:
         """
         Make the platform API call. Return raw response text.
         Raise RateLimitError on 429. Raise DriverError on other failures.
@@ -330,7 +330,7 @@ class _GateInterpreter:
     Called only after the whitelist check has already validated the AST.
     """
 
-    _CMP_OPS: dict = {
+    _CMP_OPS: dict[type[ast.cmpop], Callable[[Any, Any], bool]] = {
         ast.Eq: _op.eq,
         ast.NotEq: _op.ne,
         ast.Lt: _op.lt,
@@ -341,7 +341,7 @@ class _GateInterpreter:
         ast.NotIn: lambda a, b: a not in b,
     }
 
-    def __init__(self, names: dict) -> None:
+    def __init__(self, names: dict[str, Any]) -> None:
         self._names = names
 
     def visit(self, node: ast.AST) -> Any:

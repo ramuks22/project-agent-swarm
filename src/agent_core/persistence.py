@@ -1,5 +1,5 @@
 """
-persistence.py — Pluggable state stores for SwarmContext checkpointing.
+persistence.py — Pluggable state stores for SwarmContext and SwarmRunState checkpointing.
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from agent_core.schemas import StateStoreType, SwarmContext
+from agent_core.schemas import StateStoreType, SwarmContext, SwarmRunState
 
 if TYPE_CHECKING:
     from agent_core.schemas import SwarmConfig
@@ -35,6 +35,21 @@ class BaseStateStore(ABC):
         """Delete a task checkpoint."""
         pass
 
+    @abstractmethod
+    async def save_run_state(self, state: SwarmRunState) -> None:
+        """Save a SwarmRunState checkpoint."""
+        pass
+
+    @abstractmethod
+    async def load_run_state(self, task_id: str) -> SwarmRunState | None:
+        """Load a SwarmRunState by task_id."""
+        pass
+
+    @abstractmethod
+    async def delete_run_state(self, task_id: str) -> None:
+        """Delete a SwarmRunState checkpoint."""
+        pass
+
 
 class FileStateStore(BaseStateStore):
     """Saves SwarmContext as local JSON files."""
@@ -43,13 +58,19 @@ class FileStateStore(BaseStateStore):
         self.state_dir = state_dir
         self.state_dir.mkdir(parents=True, exist_ok=True)
 
+    def _context_path(self, task_id: str) -> Path:
+        return self.state_dir / f"{task_id}.json"
+
+    def _run_state_path(self, task_id: str) -> Path:
+        return self.state_dir / f"{task_id}.run.json"
+
     async def save(self, context: SwarmContext) -> None:
-        path = self.state_dir / f"{context.task_id}.json"
+        path = self._context_path(context.task_id)
         path.write_text(context.model_dump_json(indent=2))
         logger.debug("State saved to %s", path)
 
     async def load(self, task_id: str) -> SwarmContext | None:
-        path = self.state_dir / f"{task_id}.json"
+        path = self._context_path(task_id)
         if not path.exists():
             return None
         try:
@@ -59,7 +80,27 @@ class FileStateStore(BaseStateStore):
             return None
 
     async def delete(self, task_id: str) -> None:
-        path = self.state_dir / f"{task_id}.json"
+        path = self._context_path(task_id)
+        if path.exists():
+            path.unlink()
+
+    async def save_run_state(self, state: SwarmRunState) -> None:
+        path = self._run_state_path(state.task_id)
+        path.write_text(state.model_dump_json(indent=2))
+        logger.debug("Run state saved to %s", path)
+
+    async def load_run_state(self, task_id: str) -> SwarmRunState | None:
+        path = self._run_state_path(task_id)
+        if not path.exists():
+            return None
+        try:
+            return SwarmRunState.model_validate_json(path.read_text())
+        except Exception as e:
+            logger.error("Failed to load run state from %s: %s", path, e)
+            return None
+
+    async def delete_run_state(self, task_id: str) -> None:
+        path = self._run_state_path(task_id)
         if path.exists():
             path.unlink()
 
@@ -67,8 +108,9 @@ class FileStateStore(BaseStateStore):
 class MemoryStateStore(BaseStateStore):
     """In-memory state store for testing."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._store: dict[str, str] = {}
+        self._run_state_store: dict[str, str] = {}
 
     async def save(self, context: SwarmContext) -> None:
         self._store[context.task_id] = context.model_dump_json()
@@ -79,6 +121,16 @@ class MemoryStateStore(BaseStateStore):
 
     async def delete(self, task_id: str) -> None:
         self._store.pop(task_id, None)
+
+    async def save_run_state(self, state: SwarmRunState) -> None:
+        self._run_state_store[state.task_id] = state.model_dump_json()
+
+    async def load_run_state(self, task_id: str) -> SwarmRunState | None:
+        data = self._run_state_store.get(task_id)
+        return SwarmRunState.model_validate_json(data) if data else None
+
+    async def delete_run_state(self, task_id: str) -> None:
+        self._run_state_store.pop(task_id, None)
 
 
 # ---------------------------------------------------------------------------

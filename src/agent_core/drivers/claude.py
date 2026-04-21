@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import cast
 
 import httpx
 
@@ -49,7 +50,8 @@ class ClaudeDriver(BaseAgentDriver):
             )
         super().__init__(spec, resolved_key, **kwargs)
         self._model: str = str(kwargs.get("model", DEFAULT_MODEL))
-        self._max_tokens: int = int(kwargs.get("max_tokens", MAX_TOKENS))
+        max_tokens = kwargs.get("max_tokens", MAX_TOKENS)
+        self._max_tokens = int(max_tokens) if isinstance(max_tokens, (int, str)) else MAX_TOKENS
         self._enable_caching: bool = bool(kwargs.get("enable_caching", True))
         # concise_mode=True (default) prepends a terse-output directive that cuts
         # prose token usage by ~65% with no accuracy loss — inspired by caveman.
@@ -76,7 +78,7 @@ class ClaudeDriver(BaseAgentDriver):
         "Pattern for prose: [thing] [action] [reason]. [next step].\n"
     )
 
-    def _build_messages(self, context: SwarmContext) -> tuple[list[dict], str]:  # type: ignore[override]
+    def _build_messages(self, context: SwarmContext) -> tuple[list[dict[str, str]], str]:
         """
         Returns (messages_list, system_str).
         _call_api unpacks this — Claude's API takes system separately from messages.
@@ -104,7 +106,8 @@ class ClaudeDriver(BaseAgentDriver):
         return [{"role": "user", "content": user_content}], system
 
     async def _call_api(self, messages: object, context: SwarmContext) -> str:
-        messages_list, system_str = messages  # type: ignore[misc]
+        payload = cast(tuple[list[dict[str, str]], str], messages)
+        messages_list, system_str = payload
 
         headers: dict[str, str] = {
             "x-api-key": self._api_key,
@@ -121,7 +124,7 @@ class ClaudeDriver(BaseAgentDriver):
         else:
             system_payload = system_str
 
-        body: dict = {
+        body: dict[str, object] = {
             "model": self._model,
             "max_tokens": self._max_tokens,
             "system": system_payload,
@@ -137,8 +140,18 @@ class ClaudeDriver(BaseAgentDriver):
             raise DriverError(f"Claude API error {resp.status_code}: {resp.text[:500]}")
 
         data = resp.json()
+        if not isinstance(data, dict):
+            raise MalformedResponseError("Claude returned a non-object response payload")
+
         content_blocks = data.get("content", [])
-        text_blocks = [b["text"] for b in content_blocks if b.get("type") == "text"]
+        if not isinstance(content_blocks, list):
+            raise MalformedResponseError("Claude content blocks were not a list")
+
+        text_blocks = [
+            str(block.get("text", ""))
+            for block in content_blocks
+            if isinstance(block, dict) and block.get("type") == "text"
+        ]
         if not text_blocks:
             raise MalformedResponseError("Claude returned no text content blocks")
         return "\n".join(text_blocks)

@@ -15,6 +15,7 @@ import logging
 import os
 import re
 from pathlib import Path
+from typing import Iterator
 
 from agent_core.schemas import (
     AgentRole,
@@ -312,7 +313,7 @@ def _build_test_automation_spec(test_fws: list[str], frameworks: list[str]) -> A
 # ---------------------------------------------------------------------------
 
 
-def _safe_rglob(root: Path, pattern: str):
+def _safe_rglob(root: Path, pattern: str) -> Iterator[Path]:
     """
     Safely yields matching files while aggressively pruning excluded directories
     to prevent traversing massive nested caches or nested tool installations.
