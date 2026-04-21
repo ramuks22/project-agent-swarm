@@ -72,7 +72,7 @@ This framework adheres to strict architectural standards:
 - **Typing**: Pydantic V2 enforced data contracts across all boundaries.
 - **Traceability**: Unified OTel exporting to standard collector endpoints.
 
-See [review_report.md](file:///Users/sasiekumarshanmugam/.gemini/antigravity/brain/a0a92813-f7fb-4a7f-9ca3-f1a83cea9c1c/review_report.md) for the full architectural depth-review.
+See [review_report.md](docs/review_report.md) for the full architectural depth-review.
 
 ---
 

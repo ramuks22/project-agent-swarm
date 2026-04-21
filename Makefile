@@ -1,4 +1,4 @@
-.PHONY: install install-dev test test-unit test-http lint typecheck format clean analyze validate
+.PHONY: install install-dev test test-unit test-http lint typecheck format clean analyze validate docs-check
 
 # --- Installation ---
 
@@ -37,6 +37,14 @@ format:
 typecheck:
 	mypy agent_core/
 
+# --- Documentation ---
+
+docs-check:
+	@echo "Checking documentation for absolute paths and local file links..."
+	@! grep -r "file:///" . --exclude-dir=.venv --exclude-dir=.git --exclude=Makefile
+	@! grep -r "/Users/" docs/
+	@echo "✅ Documentation is clean."
+
 # --- CLI shortcuts ---
 
 analyze:
@@ -58,7 +66,7 @@ clean:
 	find . -type d -name "*.egg-info" -exec rm -rf {} + 2>/dev/null || true
 	find . -name "*.pyc" -delete 2>/dev/null || true
 	rm -rf .coverage htmlcov/ .pytest_cache/ .mypy_cache/ .ruff_cache/
-	rm -rf .agent-swarm/outputs/
+	rm -rf .swarm/outputs/
 
 # --- Help ---
 
@@ -78,4 +86,5 @@ help:
 	@echo "  validate     Validate swarm.yaml"
 	@echo "  init         Create starter swarm.yaml"
 	@echo "  optimizer-verify Run the context optimizer verifier (TASK=\"...\" BUDGET=...)"
+	@echo "  docs-check   Verify documentation for broken local links"
 	@echo "  clean        Remove build artifacts and caches"
