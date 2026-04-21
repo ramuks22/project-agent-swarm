@@ -12,17 +12,17 @@ Design:
 
 from __future__ import annotations
 
-import pytest
-import pytest_asyncio
 from pathlib import Path
+
+import pytest
 
 from agent_core.persistence import FileStateStore, MemoryStateStore
 from agent_core.schemas import Platform, SwarmContext
 
-
 # ---------------------------------------------------------------------------
 # Shared context fixture
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def sample_context() -> SwarmContext:
@@ -46,6 +46,7 @@ def another_context() -> SwarmContext:
 # ---------------------------------------------------------------------------
 # Shared contract — all stores must pass
 # ---------------------------------------------------------------------------
+
 
 class _StoreContract:
     """
@@ -117,6 +118,7 @@ class _StoreContract:
 # FileStateStore — contract tests
 # ---------------------------------------------------------------------------
 
+
 class TestFileStateStore(_StoreContract):
     @pytest.fixture()
     def store(self, tmp_path: Path) -> FileStateStore:
@@ -127,6 +129,7 @@ class TestFileStateStore(_StoreContract):
 # MemoryStateStore — contract tests
 # ---------------------------------------------------------------------------
 
+
 class TestMemoryStateStore(_StoreContract):
     @pytest.fixture()
     def store(self) -> MemoryStateStore:
@@ -136,6 +139,7 @@ class TestMemoryStateStore(_StoreContract):
 # ---------------------------------------------------------------------------
 # RedisStateStore — contract tests (via fakeredis, no daemon required)
 # ---------------------------------------------------------------------------
+
 
 class TestRedisStateStore(_StoreContract):
     @pytest.fixture()
@@ -155,6 +159,7 @@ class TestRedisStateStore(_StoreContract):
 # Extra: RedisStateStore-specific behaviour
 # ---------------------------------------------------------------------------
 
+
 class TestRedisStateStoreExtra:
     """Tests for Redis-specific behaviour not covered by the shared contract."""
 
@@ -167,6 +172,7 @@ class TestRedisStateStoreExtra:
     async def test_key_format(self, fake_client, sample_context):
         """Confirm keys are namespaced under agent_swarm:context:"""
         from agent_core.drivers.redis_store import RedisStateStore
+
         store = RedisStateStore(redis_url="redis://unused", _client=fake_client)
         await store.save(sample_context)
         # The key must be retrievable by the expected name pattern
@@ -179,6 +185,7 @@ class TestRedisStateStoreExtra:
         """A non-positive TTL must raise ValueError at construction time."""
         fakeredis = pytest.importorskip("fakeredis.aioredis")
         from agent_core.drivers.redis_store import RedisStateStore
+
         with pytest.raises(ValueError, match="positive integer"):
             RedisStateStore(
                 redis_url="redis://unused",

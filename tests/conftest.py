@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -10,7 +9,6 @@ import pytest
 
 from agent_core.schemas import (
     AgentSpec,
-    EscalationPolicy,
     Platform,
     QualityGate,
     StructuredResult,
@@ -19,7 +17,6 @@ from agent_core.schemas import (
     TaskStatus,
     ToolPermission,
 )
-
 
 # ---------------------------------------------------------------------------
 # Minimal valid AgentSpec fixtures
@@ -131,6 +128,7 @@ def make_fake_driver(spec: AgentSpec, result: StructuredResult) -> MagicMock:
 def fake_driver_factory(done_result: StructuredResult):
     def _factory(spec: AgentSpec, result: StructuredResult | None = None) -> MagicMock:
         return make_fake_driver(spec, result or done_result)
+
     return _factory
 
 

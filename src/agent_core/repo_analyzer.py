@@ -32,44 +32,44 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 LANG_MARKERS: dict[str, list[str]] = {
-    "python":     ["*.py", "pyproject.toml", "setup.py", "requirements*.txt", "Pipfile"],
+    "python": ["*.py", "pyproject.toml", "setup.py", "requirements*.txt", "Pipfile"],
     "typescript": ["*.ts", "*.tsx", "tsconfig.json"],
     "javascript": ["*.js", "*.jsx", "package.json"],
-    "java":       ["*.java", "pom.xml", "build.gradle", "*.gradle.kts"],
-    "go":         ["*.go", "go.mod"],
-    "rust":       ["*.rs", "Cargo.toml"],
-    "ruby":       ["*.rb", "Gemfile"],
-    "csharp":     ["*.cs", "*.csproj", "*.sln"],
+    "java": ["*.java", "pom.xml", "build.gradle", "*.gradle.kts"],
+    "go": ["*.go", "go.mod"],
+    "rust": ["*.rs", "Cargo.toml"],
+    "ruby": ["*.rb", "Gemfile"],
+    "csharp": ["*.cs", "*.csproj", "*.sln"],
 }
 
 FRAMEWORK_MARKERS: dict[str, list[str]] = {
-    "react":      ["package.json:react", "*.tsx", "*.jsx"],
-    "nextjs":     ["next.config.*"],
-    "django":     ["manage.py", "django"],
-    "fastapi":    ["fastapi"],
-    "spring":     ["spring-boot", "SpringApplication"],
+    "react": ["package.json:react", "*.tsx", "*.jsx"],
+    "nextjs": ["next.config.*"],
+    "django": ["manage.py", "django"],
+    "fastapi": ["fastapi"],
+    "spring": ["spring-boot", "SpringApplication"],
     "playwright": ["playwright.config.*", "@playwright/test"],
-    "cucumber":   ["*.feature", "cucumber"],
-    "terraform":  ["*.tf", "terraform"],
+    "cucumber": ["*.feature", "cucumber"],
+    "terraform": ["*.tf", "terraform"],
     "kubernetes": ["*.yaml:kind: Deployment", "helm"],
 }
 
 TEST_FRAMEWORK_MARKERS: dict[str, list[str]] = {
-    "pytest":   ["pytest", "conftest.py"],
-    "jest":     ["jest.config.*", "\"jest\""],
-    "junit":    ["@Test", "junit"],
-    "rspec":    ["_spec.rb", "RSpec"],
-    "vitest":   ["vitest.config.*"],
-    "mocha":    ["mocha"],
+    "pytest": ["pytest", "conftest.py"],
+    "jest": ["jest.config.*", '"jest"'],
+    "junit": ["@Test", "junit"],
+    "rspec": ["_spec.rb", "RSpec"],
+    "vitest": ["vitest.config.*"],
+    "mocha": ["mocha"],
     "playwright-test": ["@playwright/test", "test.spec.ts"],
 }
 
 CI_MARKERS: dict[str, str] = {
     "github-actions": ".github/workflows",
-    "gitlab-ci":      ".gitlab-ci.yml",
-    "circleci":       ".circleci/config.yml",
-    "jenkins":        "Jenkinsfile",
-    "azure-devops":   "azure-pipelines.yml",
+    "gitlab-ci": ".gitlab-ci.yml",
+    "circleci": ".circleci/config.yml",
+    "jenkins": "Jenkinsfile",
+    "azure-devops": "azure-pipelines.yml",
 }
 
 
@@ -93,7 +93,10 @@ def analyze(repo_root: Path) -> RepoMetadata:
     ci = _detect_ci(repo_root)
     module_map = _build_module_map(repo_root, langs)
 
-    has_docker = any((repo_root / f).exists() for f in ["Dockerfile", "docker-compose.yml", "docker-compose.yaml"])
+    has_docker = any(
+        (repo_root / f).exists()
+        for f in ["Dockerfile", "docker-compose.yml", "docker-compose.yaml"]
+    )
     has_migrations = _has_migrations(repo_root)
     has_openapi = _has_openapi(repo_root)
 
@@ -110,8 +113,9 @@ def analyze(repo_root: Path) -> RepoMetadata:
 
     # Hydrate all recommended roles into full AgentSpecs (Built-in + Custom)
     from agent_core.registry import get_default_registry
+
     registry = get_default_registry()
-    
+
     all_hydrated_specs = []
     custom_map = {s.role: s for s in custom_specs}
 
@@ -188,7 +192,9 @@ def _determine_roles(
 
     has_source = bool(langs)
     has_tests = bool(test_fws)
-    has_api = has_openapi or any(f in frameworks for f in ["fastapi", "django", "spring", "express"])
+    has_api = has_openapi or any(
+        f in frameworks for f in ["fastapi", "django", "spring", "express"]
+    )
     has_ci = bool(ci)
 
     if has_source:
@@ -266,7 +272,9 @@ def _build_infra_engineer_spec(frameworks: list[str]) -> AgentSpec:
 
 
 def _build_test_automation_spec(test_fws: list[str], frameworks: list[str]) -> AgentSpec:
-    fw_list = ", ".join(f for f in test_fws + frameworks if f in {"playwright", "cucumber", "selenium", "cypress"})
+    fw_list = ", ".join(
+        f for f in test_fws + frameworks if f in {"playwright", "cucumber", "selenium", "cypress"}
+    )
 
     return AgentSpec(
         name="test-automation-engineer",
@@ -285,7 +293,9 @@ def _build_test_automation_spec(test_fws: list[str], frameworks: list[str]) -> A
         quality_gates=[
             QualityGate(description="Tests follow the page object model pattern used in this repo"),
             QualityGate(description="No hard-coded wait times — use explicit waits"),
-            QualityGate(description="BDD scenarios written in business language, not technical steps"),
+            QualityGate(
+                description="BDD scenarios written in business language, not technical steps"
+            ),
             QualityGate(description="Tests pass in headless mode"),
         ],
         tools_allowed=[ToolPermission(name=t) for t in ["Read", "Write", "Edit", "Bash", "Glob"]],
@@ -307,9 +317,20 @@ def _safe_rglob(root: Path, pattern: str):
     Safely yields matching files while aggressively pruning excluded directories
     to prevent traversing massive nested caches or nested tool installations.
     """
-    excludes = {".git", "node_modules", ".next", ".playwright-cli", "coverage", 
-                "dist", "build", "__pycache__", ".agent-swarm", ".venv", "venv"}
-    
+    excludes = {
+        ".git",
+        "node_modules",
+        ".next",
+        ".playwright-cli",
+        "coverage",
+        "dist",
+        "build",
+        "__pycache__",
+        ".agent-swarm",
+        ".venv",
+        "venv",
+    }
+
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in excludes]
         dir_p = Path(dirpath)
@@ -455,7 +476,9 @@ def _parse_contributing_doc(root: Path) -> dict[str, AgentSpec]:
                     QualityGate(description="All auth paths reviewed"),
                     QualityGate(description="No secrets in code or logs"),
                 ],
-                tools_allowed=[ToolPermission(name=t) for t in ["Read", "Glob", "Grep", "WebSearch"]],
+                tools_allowed=[
+                    ToolPermission(name=t) for t in ["Read", "Glob", "Grep", "WebSearch"]
+                ],
                 out_of_scope=["Making fixes — findings only"],
                 escalation=EscalationPolicy(max_retries=1),
             )

@@ -30,15 +30,17 @@ Design contract (addresses the architectural critiques directly):
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from agent_core.context_optimizer import pass_1_metadata_score, pass_2_content_refinement, slice_to_budget
+from agent_core.context_optimizer import (
+    pass_1_metadata_score,
+    pass_2_content_refinement,
+    slice_to_budget,
+)
 from agent_core.persistence import get_state_store
-from agent_core.security.tool_sandbox import is_command_safe
 from agent_core.schemas import (
     AgentOutput,
     AgentSpec,
@@ -50,6 +52,7 @@ from agent_core.schemas import (
     SwarmContext,
     TaskStatus,
 )
+from agent_core.security.tool_sandbox import is_command_safe
 
 if TYPE_CHECKING:
     from agent_core.drivers.base import BaseAgentDriver
@@ -68,12 +71,13 @@ def register_driver(platform: Platform, driver_cls: type) -> None:
     _DRIVER_REGISTRY[platform] = driver_cls
 
 
-def _get_driver(platform: Platform, spec: AgentSpec, api_key: str, **kwargs: object) -> "BaseAgentDriver":
+def _get_driver(
+    platform: Platform, spec: AgentSpec, api_key: str, **kwargs: object
+) -> BaseAgentDriver:
     cls = _DRIVER_REGISTRY.get(platform)
     if cls is None:
         raise ValueError(
-            f"No driver registered for platform '{platform}'. "
-            f"Available: {list(_DRIVER_REGISTRY)}"
+            f"No driver registered for platform '{platform}'. Available: {list(_DRIVER_REGISTRY)}"
         )
     return cls(spec, api_key, **kwargs)
 
@@ -82,20 +86,23 @@ def _get_driver(platform: Platform, spec: AgentSpec, api_key: str, **kwargs: obj
 def _register_builtins() -> None:
     try:
         from agent_core.drivers.claude import ClaudeDriver
+
         register_driver(Platform.CLAUDE_CODE, ClaudeDriver)
-    except Exception:
+    except Exception:  # noqa: S110
         pass
     try:
         from agent_core.drivers.codex import CodexDriver
+
         register_driver(Platform.CODEX, CodexDriver)
         # Register OPENAI as an alias to CodexDriver (C-04 fix)
         register_driver(Platform.OPENAI, CodexDriver)
-    except Exception:
+    except Exception:  # noqa: S110
         pass
     try:
         from agent_core.drivers.gemini import GeminiDriver
+
         register_driver(Platform.GEMINI, GeminiDriver)
-    except Exception:
+    except Exception:  # noqa: S110
         pass
 
 
@@ -132,15 +139,15 @@ def build_context(
         agent_role=agent_role,
         recently_changed=recently_changed or None,
     )
-    
+
     scored_p2 = pass_2_content_refinement(
         candidates=scored_p1,
         task_description=task_description,
         error_trace=error_trace or None,
         max_reads=25,
-        preview_bytes=8192
+        preview_bytes=8192,
     )
-    
+
     selected = slice_to_budget(scored_p2, token_budget=budget)
 
     snapshots: list[FileSnapshot] = [
@@ -156,7 +163,10 @@ def build_context(
     used_tokens = sum(s.token_count for s in snapshots)
     logger.debug(
         "Context optimizer: %d/%d files selected, %d/%d tokens used",
-        len(snapshots), len(file_paths), used_tokens, budget,
+        len(snapshots),
+        len(file_paths),
+        used_tokens,
+        budget,
     )
 
     return SwarmContext(
@@ -228,10 +238,14 @@ async def run_sequential(
             if is_safe:
                 safe_commands.append(cmd)
             else:
-                logger.warning("Agent suggested unsafe command blocked: %s (Reason: %s)", cmd, reason)
+                logger.warning(
+                    "Agent suggested unsafe command blocked: %s (Reason: %s)", cmd, reason
+                )
                 if config.quality_gate_strict:
                     result.status = TaskStatus.ESCALATED
-                    result.escalation_reason = f"Security Violation: Suggested dangerous command - {reason}"
+                    result.escalation_reason = (
+                        f"Security Violation: Suggested dangerous command - {reason}"
+                    )
                     break
         result.suggested_commands = safe_commands
 
@@ -255,12 +269,14 @@ async def run_sequential(
         context.previous_outputs = accumulated_outputs
         await state_store.save(context)
         if on_event:
-            await on_event({
-                "type": "agent_complete", 
-                "agent": spec.name, 
-                "task_id": task_id, 
-                "status": result.status
-            })
+            await on_event(
+                {
+                    "type": "agent_complete",
+                    "agent": spec.name,
+                    "task_id": task_id,
+                    "status": result.status,
+                }
+            )
 
         # Halt on escalation in strict mode
         if result.status == TaskStatus.ESCALATED and config.quality_gate_strict:
@@ -283,7 +299,7 @@ async def resume_swarm(
 ) -> list[StructuredResult]:
     """
     Resume a previously interrupted swarm task using its task_id.
-    
+
     If remaining_chain is provided, it replaces any logic that would have
     been inferred from the saved context.
     """
@@ -296,7 +312,7 @@ async def resume_swarm(
     logger.info("Resuming swarm task: %s", task_id)
 
     if not remaining_chain:
-        # If no chain provided, we can only run a generic single-agent 
+        # If no chain provided, we can only run a generic single-agent
         # based on context or fail. Usually callers provide the chain.
         raise ValueError("remaining_chain must be provided to resume a sequential run.")
 
@@ -391,9 +407,7 @@ def _detect_conflicts(results: list[StructuredResult], config: SwarmConfig) -> N
 
     for result in results:
         for finding in result.findings:
-            file_severity.setdefault(finding.file, []).append(
-                (result.role, finding.severity)
-            )
+            file_severity.setdefault(finding.file, []).append((result.role, finding.severity))
 
     for file, assessments in file_severity.items():
         severities = {s for _, s in assessments}

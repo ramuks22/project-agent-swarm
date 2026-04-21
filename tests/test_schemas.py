@@ -7,7 +7,6 @@ from pydantic import ValidationError
 
 from agent_core.schemas import (
     AgentSpec,
-    EscalationPolicy,
     FileDiff,
     Platform,
     QualityGate,
@@ -95,17 +94,20 @@ class TestStructuredResult:
 
     def test_file_diff_embedded(self) -> None:
         from pathlib import Path
+
         result = StructuredResult(
             task_id="t1",
             role="implementer",
             status=TaskStatus.DONE,
             summary="Changed one file.",
-            diffs=[FileDiff(
-                path=Path("src/auth.py"),
-                operation="modify",
-                unified_diff="--- a/src/auth.py\n+++ b/src/auth.py\n@@ -1 +1 @@\n-pass\n+return True",
-                explanation="Added return value.",
-            )],
+            diffs=[
+                FileDiff(
+                    path=Path("src/auth.py"),
+                    operation="modify",
+                    unified_diff="--- a/src/auth.py\n+++ b/src/auth.py\n@@ -1 +1 @@\n-pass\n+return True",
+                    explanation="Added return value.",
+                )
+            ],
         )
         assert result.diffs[0].operation == "modify"
 
@@ -116,8 +118,12 @@ class TestStructuredResult:
             status=TaskStatus.DONE,
             summary="Two findings.",
             findings=[
-                ReviewFinding(file="src/auth.py", severity=Severity.BLOCKER, description="SQL injection."),
-                ReviewFinding(file="src/auth.py", line=42, severity=Severity.NIT, description="Rename var."),
+                ReviewFinding(
+                    file="src/auth.py", severity=Severity.BLOCKER, description="SQL injection."
+                ),
+                ReviewFinding(
+                    file="src/auth.py", line=42, severity=Severity.NIT, description="Rename var."
+                ),
             ],
         )
         assert result.findings[0].severity == Severity.BLOCKER
@@ -145,8 +151,10 @@ class TestSwarmConfig:
 
     def test_output_dir_default(self) -> None:
         from pathlib import Path
+
         cfg = SwarmConfig(platform=Platform.GENERIC)
-        assert cfg.output_dir == Path(".agent-swarm/outputs")
+        assert cfg.output_dir == Path(".swarm/outputs")
+        assert cfg.state_dir == Path(".swarm/state")
 
 
 class TestSwarmContext:

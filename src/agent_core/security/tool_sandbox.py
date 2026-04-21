@@ -2,8 +2,8 @@
 tool_sandbox.py — Security verification for agent-suggested shell commands.
 """
 
-import re
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,7 @@ BLOCKLISTED_COMMANDS = [
     r"(?i)\bchmod\s+777\b",
 ]
 
+
 def is_command_safe(command: str) -> tuple[bool, str]:
     """
     Checks if a shell command is safe to show to a user for validation.
@@ -25,9 +26,9 @@ def is_command_safe(command: str) -> tuple[bool, str]:
     for pattern in BLOCKLISTED_COMMANDS:
         if re.search(pattern, command):
             return False, f"Potentially destructive command detected: {pattern}"
-    
+
     # Check for chained commands or redirects that might hide payload
     if ";" in command or "&&" in command or "|" in command:
         logger.debug("Command contains chaining, tagging for close manual review.")
-    
+
     return True, "Safe to review"

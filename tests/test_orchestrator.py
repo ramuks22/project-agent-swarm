@@ -16,8 +16,6 @@ from agent_core.orchestrator import (
 from agent_core.schemas import (
     AgentOutput,
     AgentSpec,
-    FileDiff,
-    Platform,
     ReviewFinding,
     Severity,
     StructuredResult,
@@ -40,28 +38,20 @@ class TestBuildContext:
         assert isinstance(ctx, SwarmContext)
         assert ctx.task_description == "Do a thing."
 
-    def test_task_id_auto_generated(
-        self, minimal_config: SwarmConfig
-    ) -> None:
+    def test_task_id_auto_generated(self, minimal_config: SwarmConfig) -> None:
         ctx = build_context("task", minimal_config, None, [])
         assert ctx.task_id  # non-empty UUID
 
-    def test_task_id_respected_when_provided(
-        self, minimal_config: SwarmConfig
-    ) -> None:
+    def test_task_id_respected_when_provided(self, minimal_config: SwarmConfig) -> None:
         ctx = build_context("task", minimal_config, None, [], task_id="my-task-123")
         assert ctx.task_id == "my-task-123"
 
-    def test_nonexistent_files_skipped(
-        self, minimal_config: SwarmConfig, tmp_path: Path
-    ) -> None:
+    def test_nonexistent_files_skipped(self, minimal_config: SwarmConfig, tmp_path: Path) -> None:
         ghost = tmp_path / "ghost.py"
         ctx = build_context("task", minimal_config, None, [ghost])
         assert ctx.relevant_files == []
 
-    def test_token_budget_enforced(
-        self, minimal_config: SwarmConfig, tmp_path: Path
-    ) -> None:
+    def test_token_budget_enforced(self, minimal_config: SwarmConfig, tmp_path: Path) -> None:
         # Write a file with enough content to consume the whole budget
         big = tmp_path / "big.py"
         big.write_text("x = 1\n" * 5000)
@@ -73,9 +63,7 @@ class TestBuildContext:
         total_tokens = sum(f.token_count for f in ctx.relevant_files)
         assert total_tokens <= minimal_config.token_budget_per_agent
 
-    def test_previous_outputs_passed_through(
-        self, minimal_config: SwarmConfig
-    ) -> None:
+    def test_previous_outputs_passed_through(self, minimal_config: SwarmConfig) -> None:
         prior = AgentOutput(
             role="architect",
             status=TaskStatus.DONE,
@@ -85,9 +73,7 @@ class TestBuildContext:
         assert len(ctx.previous_outputs) == 1
         assert ctx.previous_outputs[0].role == "architect"
 
-    def test_constraints_include_quality_gate_strict(
-        self, minimal_config: SwarmConfig
-    ) -> None:
+    def test_constraints_include_quality_gate_strict(self, minimal_config: SwarmConfig) -> None:
         ctx = build_context("task", minimal_config, None, [])
         assert "quality_gate_strict" in ctx.constraints
         assert ctx.constraints["quality_gate_strict"] is True
@@ -101,6 +87,7 @@ class TestWriteResult:
 
     def test_written_json_is_valid(self, done_result: StructuredResult, tmp_path: Path) -> None:
         import json
+
         _write_result(done_result, tmp_path, "task-001")
         out = tmp_path / "task-001" / "implementer.json"
         data = json.loads(out.read_text())
@@ -120,9 +107,7 @@ class TestRunSequential:
         done_result: StructuredResult,
         tmp_path: Path,
     ) -> None:
-        minimal_config = minimal_config.model_copy(
-            update={"output_dir": tmp_path / "outputs"}
-        )
+        minimal_config = minimal_config.model_copy(update={"output_dir": tmp_path / "outputs"})
         fake_driver = MagicMock()
         fake_driver.invoke = AsyncMock(return_value=done_result)
 
@@ -146,9 +131,7 @@ class TestRunSequential:
         done_result: StructuredResult,
         tmp_path: Path,
     ) -> None:
-        minimal_config = minimal_config.model_copy(
-            update={"output_dir": tmp_path / "outputs"}
-        )
+        minimal_config = minimal_config.model_copy(update={"output_dir": tmp_path / "outputs"})
         captured_contexts: list[SwarmContext] = []
 
         async def capture_invoke(ctx: SwarmContext) -> StructuredResult:
@@ -231,19 +214,27 @@ class TestRunSequential:
 
 
 class TestDetectConflicts:
-    def test_no_conflict_when_consistent(
-        self, minimal_config: SwarmConfig
-    ) -> None:
+    def test_no_conflict_when_consistent(self, minimal_config: SwarmConfig) -> None:
         results = [
             StructuredResult(
-                task_id="t1", role="reviewer-a", status=TaskStatus.DONE,
+                task_id="t1",
+                role="reviewer-a",
+                status=TaskStatus.DONE,
                 summary="x",
-                findings=[ReviewFinding(file="auth.py", severity=Severity.BLOCKER, description="SQL injection.")],
+                findings=[
+                    ReviewFinding(
+                        file="auth.py", severity=Severity.BLOCKER, description="SQL injection."
+                    )
+                ],
             ),
             StructuredResult(
-                task_id="t1", role="reviewer-b", status=TaskStatus.DONE,
+                task_id="t1",
+                role="reviewer-b",
+                status=TaskStatus.DONE,
                 summary="x",
-                findings=[ReviewFinding(file="auth.py", severity=Severity.BLOCKER, description="Same.")],
+                findings=[
+                    ReviewFinding(file="auth.py", severity=Severity.BLOCKER, description="Same.")
+                ],
             ),
         ]
         # Should not raise — same severity is not a conflict
@@ -253,16 +244,27 @@ class TestDetectConflicts:
         self, minimal_config: SwarmConfig, caplog: pytest.LogCaptureFixture
     ) -> None:
         import logging
+
         results = [
             StructuredResult(
-                task_id="t1", role="reviewer-a", status=TaskStatus.DONE,
+                task_id="t1",
+                role="reviewer-a",
+                status=TaskStatus.DONE,
                 summary="x",
-                findings=[ReviewFinding(file="auth.py", severity=Severity.BLOCKER, description="Critical.")],
+                findings=[
+                    ReviewFinding(
+                        file="auth.py", severity=Severity.BLOCKER, description="Critical."
+                    )
+                ],
             ),
             StructuredResult(
-                task_id="t1", role="reviewer-b", status=TaskStatus.DONE,
+                task_id="t1",
+                role="reviewer-b",
+                status=TaskStatus.DONE,
                 summary="x",
-                findings=[ReviewFinding(file="auth.py", severity=Severity.NIT, description="Minor.")],
+                findings=[
+                    ReviewFinding(file="auth.py", severity=Severity.NIT, description="Minor.")
+                ],
             ),
         ]
         with caplog.at_level(logging.WARNING):

@@ -12,13 +12,14 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
-from typing import Annotated, Any, Dict, List, Optional, Union
+from typing import Any, Dict, Optional, Union
+
+from pydantic import BaseModel, Field, model_validator
+
 
 class StrEnum(str, Enum):
     def __str__(self) -> str:
         return str(self.value)
-
-from pydantic import BaseModel, Field, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +53,7 @@ class Platform(StrEnum):
     CLAUDE_CODE = "claude-code"
     CODEX = "codex"  # backward compatibility alias for openai
     OPENAI = "openai"
-    GEMINI = "gemini"   # Google Gemini / Antigravity family
+    GEMINI = "gemini"  # Google Gemini / Antigravity family
     GENERIC = "generic"
 
 
@@ -193,7 +194,7 @@ class SwarmContext(BaseModel, extra="forbid"):
         default_factory=dict,
         description="Runtime constraints: token_budget, max_files, allowed_tools, etc.",
     )
-    repo_metadata: Optional["RepoMetadata"] = None
+    repo_metadata: Optional[RepoMetadata] = None
 
 
 # ---------------------------------------------------------------------------
@@ -246,7 +247,7 @@ class StructuredResult(BaseModel, extra="forbid"):
     next_agent: Optional[str] = None
 
     @model_validator(mode="after")
-    def escalation_requires_reason(self) -> "StructuredResult":
+    def escalation_requires_reason(self) -> StructuredResult:
         if self.status == TaskStatus.ESCALATED and not self.escalation_reason:
             raise ValueError("Escalated results must include an escalation_reason")
         return self
@@ -340,7 +341,7 @@ class SwarmConfig(BaseModel, extra="forbid"):
     )
 
     @model_validator(mode="after")
-    def parallel_requires_explicit_agents(self) -> "SwarmConfig":
+    def parallel_requires_explicit_agents(self) -> SwarmConfig:
         if self.max_parallel_agents > 1 and not self.agents:
             raise ValueError(
                 "Parallel execution requires explicit agent definitions. "

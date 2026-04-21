@@ -7,7 +7,6 @@ install:
 
 install-dev:
 	pip install -e ".[dev]"
-	pip install respx  # HTTP mocking for driver tests
 
 # --- Testing ---
 
@@ -26,16 +25,16 @@ test-cov:
 # --- Code quality ---
 
 lint:
-	ruff check agent_core/ tests/
+	ruff check src/agent_core/ tests/
 
 lint-fix:
-	ruff check --fix agent_core/ tests/
+	ruff check --fix src/agent_core/ tests/
 
 format:
-	ruff format agent_core/ tests/
+	ruff format src/agent_core/ tests/
 
 typecheck:
-	mypy agent_core/
+	mypy src/agent_core/
 
 # --- Documentation ---
 

@@ -47,16 +47,13 @@ class CodexDriver(BaseAgentDriver):
         resolved_key = api_key or os.environ.get("OPENAI_API_KEY", "")
         if not resolved_key:
             raise DriverError(
-                "OPENAI_API_KEY not set. "
-                "Provide api_key= or set the environment variable."
+                "OPENAI_API_KEY not set. Provide api_key= or set the environment variable."
             )
         super().__init__(spec, resolved_key, **kwargs)
         self._model: str = str(kwargs.get("model", DEFAULT_MODEL))
         self._max_tokens: int = int(kwargs.get("max_tokens", MAX_TOKENS))  # type: ignore[arg-type]
         self._structured_outputs: bool = bool(kwargs.get("structured_outputs", True))
-        self._is_reasoning_model: bool = any(
-            self._model.startswith(m) for m in REASONING_MODELS
-        )
+        self._is_reasoning_model: bool = any(self._model.startswith(m) for m in REASONING_MODELS)
 
     # ------------------------------------------------------------------
     # BaseAgentDriver implementation
@@ -66,12 +63,10 @@ class CodexDriver(BaseAgentDriver):
         system = self._build_system_prompt(context)
 
         file_block = "\n\n".join(
-            f"### {f.path}\n```{f.language}\n{f.content}\n```"
-            for f in context.relevant_files
+            f"### {f.path}\n```{f.language}\n{f.content}\n```" for f in context.relevant_files
         )
         prior_block = "\n\n".join(
-            f"**{o.role}** ({o.status}): {o.summary}"
-            for o in context.previous_outputs
+            f"**{o.role}** ({o.status}): {o.summary}" for o in context.previous_outputs
         )
 
         user_content = (
@@ -121,9 +116,7 @@ class CodexDriver(BaseAgentDriver):
         try:
             return data["choices"][0]["message"]["content"]
         except (KeyError, IndexError) as exc:
-            raise MalformedResponseError(
-                f"Unexpected Codex response shape: {exc}"
-            ) from exc
+            raise MalformedResponseError(f"Unexpected Codex response shape: {exc}") from exc
 
     def _parse_response(self, raw: str, context: SwarmContext) -> StructuredResult:
         return self._parse_json_result(raw, context)

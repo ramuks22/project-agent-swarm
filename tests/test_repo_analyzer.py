@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from agent_core.repo_analyzer import analyze, load_role_templates
 from agent_core.schemas import AgentRole
 
@@ -43,8 +41,10 @@ class TestAnalyze:
         meta = analyze(fake_repo)
         spec = next((s for s in meta.agent_specs if s.name == "test-automation-engineer"), None)
         assert spec is not None
-        assert any("playwright" in r.lower() or "bdd" in r.lower() or "cucumber" in r.lower()
-                   for r in spec.responsibilities)
+        assert any(
+            "playwright" in r.lower() or "bdd" in r.lower() or "cucumber" in r.lower()
+            for r in spec.responsibilities
+        )
 
     def test_implementer_present_for_source_repo(self, fake_repo: Path) -> None:
         meta = analyze(fake_repo)
@@ -63,7 +63,7 @@ class TestAnalyze:
         # Mocking the condition where tracking installs inside a sub-folder
         (tmp_path / ".agent-swarm").mkdir()
         (tmp_path / ".agent-swarm" / "package.json").write_text('{"name": "ignore me"}')
-        (tmp_path / ".agent-swarm" / "hidden.go").write_text('package main')
+        (tmp_path / ".agent-swarm" / "hidden.go").write_text("package main")
 
         meta = analyze(tmp_path)
         # Verify the top level mock did not evaluate the framework leakage

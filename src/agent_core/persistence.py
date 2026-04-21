@@ -4,11 +4,10 @@ persistence.py — Pluggable state stores for SwarmContext checkpointing.
 
 from __future__ import annotations
 
-import json
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from agent_core.schemas import StateStoreType, SwarmContext
 
@@ -86,6 +85,7 @@ class MemoryStateStore(BaseStateStore):
 # Factory
 # ---------------------------------------------------------------------------
 
+
 def get_state_store(config: SwarmConfig) -> BaseStateStore:
     """Factory to get the configured state store."""
     if config.state_store_type == StateStoreType.FILE:
@@ -106,7 +106,7 @@ def get_state_store(config: SwarmConfig) -> BaseStateStore:
         if not config.redis_url:
             raise ValueError("redis_url is required when state_store_type is 'redis'")
         return RedisStateStore(config.redis_url)
-    
+
     return FileStateStore(config.state_dir)
 
 
@@ -124,6 +124,7 @@ def get_default_state_store() -> BaseStateStore:
     fallback to FILE (that would silently diverge from the orchestrator's store).
     """
     import os
+
     redis_url = os.environ.get("AGENT_SWARM_REDIS_URL")
     if redis_url:
         try:
@@ -143,6 +144,7 @@ def get_default_state_store() -> BaseStateStore:
     else:
         # Derive from SwarmConfig default rather than duplicating the constant
         from agent_core.schemas import SwarmConfig as _SC
+
         state_dir = _SC.model_fields["state_dir"].default
         logger.debug("Using default state_dir=%s for state store", state_dir)
     return FileStateStore(state_dir)

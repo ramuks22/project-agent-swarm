@@ -45,8 +45,7 @@ class ClaudeDriver(BaseAgentDriver):
         resolved_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
         if not resolved_key:
             raise DriverError(
-                "ANTHROPIC_API_KEY not set. "
-                "Provide api_key= or set the environment variable."
+                "ANTHROPIC_API_KEY not set. Provide api_key= or set the environment variable."
             )
         super().__init__(spec, resolved_key, **kwargs)
         self._model: str = str(kwargs.get("model", DEFAULT_MODEL))
@@ -89,12 +88,10 @@ class ClaudeDriver(BaseAgentDriver):
             system = base_system
 
         file_block = "\n\n".join(
-            f"### {f.path}\n```{f.language}\n{f.content}\n```"
-            for f in context.relevant_files
+            f"### {f.path}\n```{f.language}\n{f.content}\n```" for f in context.relevant_files
         )
         prior_block = "\n\n".join(
-            f"**{o.role}** ({o.status}): {o.summary}"
-            for o in context.previous_outputs
+            f"**{o.role}** ({o.status}): {o.summary}" for o in context.previous_outputs
         )
 
         user_content = (

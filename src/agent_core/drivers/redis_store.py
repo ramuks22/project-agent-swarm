@@ -37,7 +37,7 @@ class RedisStateStore:
         redis_url: str,
         ttl_seconds: int | None = None,
         *,
-        _client: "aioredis.Redis | None" = None,
+        _client: aioredis.Redis | None = None,
     ) -> None:
         """
         Args:
@@ -55,21 +55,21 @@ class RedisStateStore:
                 f"AGENT_SWARM_REDIS_TTL_SECONDS must be a positive integer, got {self._ttl}"
             )
         self._client: aioredis.Redis = (
-            _client if _client is not None
-            else aioredis.from_url(redis_url, decode_responses=True)
+            _client if _client is not None else aioredis.from_url(redis_url, decode_responses=True)
         )
 
     @staticmethod
     def _key(task_id: str) -> str:
         return f"agent_swarm:context:{task_id}"
 
-    async def save(self, context: "SwarmContext") -> None:
+    async def save(self, context: SwarmContext) -> None:
         key = self._key(context.task_id)
         await self._client.set(key, context.model_dump_json(), ex=self._ttl)
         logger.debug("Redis state saved: %s (TTL=%ds)", key, self._ttl)
 
-    async def load(self, task_id: str) -> "SwarmContext | None":
+    async def load(self, task_id: str) -> SwarmContext | None:
         from agent_core.schemas import SwarmContext as _SC
+
         key = self._key(task_id)
         data = await self._client.get(key)
         if not data:

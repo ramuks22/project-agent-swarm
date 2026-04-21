@@ -25,9 +25,7 @@ from agent_core.schemas import AgentSpec, StructuredResult, SwarmContext
 
 logger = logging.getLogger(__name__)
 
-AI_STUDIO_URL = (
-    "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-)
+AI_STUDIO_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 DEFAULT_MODEL = "gemini-3.1-pro"
 MAX_OUTPUT_TOKENS = 8192
 
@@ -86,12 +84,10 @@ class GeminiDriver(BaseAgentDriver):
             system_text = base_system
 
         file_block = "\n\n".join(
-            f"### {f.path}\n```{f.language}\n{f.content}\n```"
-            for f in context.relevant_files
+            f"### {f.path}\n```{f.language}\n{f.content}\n```" for f in context.relevant_files
         )
         prior_block = "\n\n".join(
-            f"**{o.role}** ({o.status}): {o.summary}"
-            for o in context.previous_outputs
+            f"**{o.role}** ({o.status}): {o.summary}" for o in context.previous_outputs
         )
 
         user_text = (
@@ -152,9 +148,7 @@ class GeminiDriver(BaseAgentDriver):
             parts = candidates[0]["content"]["parts"]
             return "".join(p.get("text", "") for p in parts)
         except (KeyError, IndexError) as exc:
-            raise MalformedResponseError(
-                f"Unexpected Gemini response shape: {exc}"
-            ) from exc
+            raise MalformedResponseError(f"Unexpected Gemini response shape: {exc}") from exc
 
     def _parse_response(self, raw: str, context: SwarmContext) -> StructuredResult:
         return self._parse_json_result(raw, context)

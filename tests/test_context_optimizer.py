@@ -2,22 +2,18 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
 
 from agent_core.context_optimizer import (
+    ScoredFile,
+    _extract_terms,
+    _is_lock_file,
+    get_eligible_candidates,
     pass_1_metadata_score,
     pass_2_content_refinement,
     slice_to_budget,
-    get_eligible_candidates,
-    _extract_terms,
-    _extract_trace_symbols,
-    _is_test_file,
-    _is_lock_file,
-    _is_generated_file,
-    ScoredFile,
 )
 
 
@@ -45,9 +41,13 @@ def source_files(tmp_path: Path) -> list[Path]:
 
 
 class TestPass1Score:
-    def test_recently_changed_scores_highest(self, source_files: list[Path], tmp_path: Path) -> None:
+    def test_recently_changed_scores_highest(
+        self, source_files: list[Path], tmp_path: Path
+    ) -> None:
         auth_model = tmp_path / "src" / "auth" / "models.py"
-        scored = pass_1_metadata_score("update user model", source_files, "implementer", recently_changed=[auth_model])
+        scored = pass_1_metadata_score(
+            "update user model", source_files, "implementer", recently_changed=[auth_model]
+        )
         assert scored[0].path == auth_model
         assert any("recently changed" in r for r in scored[0].reasons)
 
@@ -63,27 +63,31 @@ class TestPass1Score:
         scored1 = pass_1_metadata_score("refactor auth logic", source_files, "implementer")
         pkg = next(s for s in scored1 if "package.json" in str(s.path))
         assert pkg.score < 0
-        
+
         # Task implies config -> boosted
         scored2 = pass_1_metadata_score("fix docker package build", source_files, "implementer")
         pkg2 = next(s for s in scored2 if "package.json" in str(s.path))
         assert pkg2.score > 0
 
     def test_task_segment_match_boosts(self, source_files: list[Path], tmp_path: Path) -> None:
-        scored = pass_1_metadata_score("fix dashboard payment mode totals", source_files, "implementer")
+        scored = pass_1_metadata_score(
+            "fix dashboard payment mode totals", source_files, "implementer"
+        )
         dashboard = next(s for s in scored if "dashboard" in str(s.path))
         assert any("segments match task terms" in r for r in dashboard.reasons)
 
 
 class TestPass2Score:
     def test_content_boosts_score(self, source_files: list[Path]) -> None:
-        scored1 = pass_1_metadata_score("offline stock queue sales role bug", source_files, "implementer")
+        scored1 = pass_1_metadata_score(
+            "offline stock queue sales role bug", source_files, "implementer"
+        )
         offline_sync = next(s for s in scored1 if "offline-sync" in str(s.path))
         pre_score = offline_sync.score
-        
+
         scored2 = pass_2_content_refinement(scored1, "offline stock queue sales role bug")
         offline_sync2 = next(s for s in scored2 if "offline-sync" in str(s.path))
-        
+
         assert offline_sync2.score > pre_score
         assert offline_sync2.content_loaded is True
 
@@ -96,9 +100,9 @@ class TestBudgetPacker:
         p2 = tmp_path / "small.py"
         p2.write_text("y")
         sf2 = ScoredFile(path=p2, token_count=50, score=10)
-        
-        selected = slice_to_budget([sf1, sf2], token_budget=4100, reserve_for_prompt=4000) 
-        
+
+        selected = slice_to_budget([sf1, sf2], token_budget=4100, reserve_for_prompt=4000)
+
         assert len(selected) == 1
         assert selected[0].path == p2
 
@@ -125,7 +129,7 @@ class TestRelevanceModes:
         scored = pass_1_metadata_score("dashboard payment mode totals", source_files, "implementer")
         scored = pass_2_content_refinement(scored, "dashboard payment mode totals")
         selected = slice_to_budget(scored, token_budget=8000)
-        
+
         paths = [s.path.name for s in selected]
         assert "route.ts" in paths
         # package.json and .env.example should have score <= 0 so not selected at all
@@ -141,7 +145,7 @@ class TestGetEligibleCandidates:
         (tmp_path / "node_modules" / "x.js").write_text("x")
         (tmp_path / "src").mkdir()
         (tmp_path / "src" / "a.py").write_text("x")
-        
+
         candidates = get_eligible_candidates(tmp_path)
         names = [p.name for p in candidates]
         assert "a.py" in names

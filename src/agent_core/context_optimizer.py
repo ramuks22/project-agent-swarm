@@ -24,6 +24,7 @@ from pathlib import Path
 
 try:
     import tiktoken as _tiktoken
+
     _TIKTOKEN_AVAILABLE = True
 except ImportError:
     _TIKTOKEN_AVAILABLE = False
@@ -66,8 +67,15 @@ class ScoredFile:
 def get_eligible_candidates(root_dir: Path) -> list[Path]:
     """Efficiently yield non-excluded file paths."""
     excludes = {
-        ".git", "node_modules", ".next", ".playwright-cli", "coverage", 
-        "dist", "build", "__pycache__", ".agent-swarm"
+        ".git",
+        "node_modules",
+        ".next",
+        ".playwright-cli",
+        "coverage",
+        "dist",
+        "build",
+        "__pycache__",
+        ".agent-swarm",
     }
     candidates = []
     for root, dirs, files in os.walk(root_dir):
@@ -87,7 +95,7 @@ def pass_1_metadata_score(
     """Pass 1: Score files based purely on metadata without reading contents."""
     recently_changed_set = set(recently_changed or [])
     task_terms = _extract_terms(task_description)
-    
+
     config_task_terms = {"config", "build", "dependency", "package", "docker", "setup", "install"}
     task_implies_config = any(term in config_task_terms for term in task_terms)
 
@@ -111,12 +119,12 @@ def pass_1_metadata_score(
 
         path_parts = [p.lower() for p in path.parts]
         path_str = str(path).lower()
-        
+
         segment_matches = [t for t in task_terms if t in path_parts]
         if segment_matches:
             sf.score += 40
             sf.reasons.append(f"path segments match task terms: {segment_matches}")
-            
+
         substring_matches = [t for t in task_terms if t in path_str and t not in segment_matches]
         if substring_matches:
             sf.score += 20
@@ -128,7 +136,14 @@ def pass_1_metadata_score(
 
         # Schema detection (filename only in pass 1)
         name = path.name.lower()
-        is_schema = "schema" in name or "model" in name or "entity" in name or "interface" in name or "types" in name or name.endswith(".prisma")
+        is_schema = (
+            "schema" in name
+            or "model" in name
+            or "entity" in name
+            or "interface" in name
+            or "types" in name
+            or name.endswith(".prisma")
+        )
         if agent_role == "architect" and is_schema:
             sf.score += 15
             sf.reasons.append("schema/model file + architect role")
@@ -151,35 +166,35 @@ def pass_1_metadata_score(
 
 
 def pass_2_content_refinement(
-    candidates: list[ScoredFile], 
+    candidates: list[ScoredFile],
     task_description: str,
     error_trace: str | None = None,
-    max_reads: int = 25, 
-    preview_bytes: int = 8192
+    max_reads: int = 25,
+    preview_bytes: int = 8192,
 ) -> list[ScoredFile]:
     """Pass 2: Refine the top N candidates by previewing content chunks."""
     task_terms = _extract_terms(task_description)
     trace_symbols = _extract_trace_symbols(error_trace or "")
-    
+
     for sf in candidates[:max_reads]:
         try:
             with sf.path.open("r", encoding="utf-8", errors="ignore") as f:
                 content_preview = f.read(preview_bytes)
-            
+
             sf.content = content_preview
             sf.content_loaded = True
-            
+
             st_size = sf.path.stat().st_size
             if st_size <= preview_bytes:
                 sf.token_count = _count_tokens(content_preview)
-                
+
             content_lower = content_preview.lower()
-            
+
             content_matches = [t for t in task_terms if t in content_lower]
             if content_matches:
                 sf.score += min(20, len(content_matches) * 4)
                 sf.reasons.append(f"content matches task terms: {content_matches[:3]}")
-                
+
             if trace_symbols:
                 matched_symbols = [s for s in trace_symbols if s in content_preview]
                 if matched_symbols:
@@ -189,7 +204,7 @@ def pass_2_content_refinement(
             if _is_generated_file(sf.path, content_preview):
                 sf.score -= 30
                 sf.reasons.append("auto-generated (penalised)")
-                
+
         except OSError:
             pass
 
@@ -209,7 +224,7 @@ def slice_to_budget(
     for sf in scored_files:
         if sf.score <= 0:
             continue
-            
+
         if used + sf.token_count <= available:
             if not sf.content_loaded:
                 try:
@@ -218,7 +233,7 @@ def slice_to_budget(
                     sf.content_loaded = True
                 except OSError:
                     continue
-            
+
             if used + sf.token_count <= available:
                 selected.append(sf)
                 used += sf.token_count
@@ -247,7 +262,7 @@ def slice_to_budget(
                 sf.truncated = True
                 selected.append(sf)
                 used += remaining
-            
+
     return selected
 
 
@@ -259,8 +274,27 @@ def slice_to_budget(
 def _extract_terms(text: str) -> list[str]:
     """Extract meaningful terms from a task description for matching."""
     # Remove stop words, keep identifiers and domain terms
-    stop = {"the", "a", "an", "is", "in", "to", "for", "of", "and", "or",
-             "with", "that", "this", "it", "be", "by", "as", "at", "on"}
+    stop = {
+        "the",
+        "a",
+        "an",
+        "is",
+        "in",
+        "to",
+        "for",
+        "of",
+        "and",
+        "or",
+        "with",
+        "that",
+        "this",
+        "it",
+        "be",
+        "by",
+        "as",
+        "at",
+        "on",
+    }
     words = re.findall(r"[a-z][a-z0-9_]{2,}", text.lower())
     return [w for w in words if w not in stop]
 
@@ -269,11 +303,11 @@ def _extract_trace_symbols(trace: str) -> list[str]:
     """Extract function names, class names, and file names from a stack trace."""
     symbols: list[str] = []
     # Python-style: File "path/file.py", line N, in function_name
-    symbols += re.findall(r'in (\w+)', trace)
+    symbols += re.findall(r"in (\w+)", trace)
     # Java-style: at com.example.ClassName.methodName
-    symbols += re.findall(r'at [\w.]+\.(\w+)\(', trace)
+    symbols += re.findall(r"at [\w.]+\.(\w+)\(", trace)
     # Generic: identifiers that look like symbols (CamelCase or snake_case)
-    symbols += re.findall(r'\b([A-Z][a-zA-Z0-9]{2,}|[a-z][a-z0-9]{2,}_[a-z][a-z0-9_]+)\b', trace)
+    symbols += re.findall(r"\b([A-Z][a-zA-Z0-9]{2,}|[a-z][a-z0-9]{2,}_[a-z][a-z0-9_]+)\b", trace)
     return list(dict.fromkeys(symbols))  # deduplicate, preserve order
 
 
@@ -311,19 +345,31 @@ def _is_schema_or_model(path: Path, content: str) -> bool:
 def _is_config_file(path: Path) -> bool:
     name = path.name.lower()
     return name in {
-        "pyproject.toml", "setup.py", "setup.cfg",
-        "package.json", "tsconfig.json",
-        "pom.xml", "build.gradle",
-        "cargo.toml", "go.mod",
-        "dockerfile", "docker-compose.yml", "docker-compose.yaml",
-        ".env.example", "makefile",
+        "pyproject.toml",
+        "setup.py",
+        "setup.cfg",
+        "package.json",
+        "tsconfig.json",
+        "pom.xml",
+        "build.gradle",
+        "cargo.toml",
+        "go.mod",
+        "dockerfile",
+        "docker-compose.yml",
+        "docker-compose.yaml",
+        ".env.example",
+        "makefile",
     }
 
 
 def _is_lock_file(path: Path) -> bool:
     return path.name.lower() in {
-        "poetry.lock", "package-lock.json", "yarn.lock",
-        "pipfile.lock", "cargo.lock", "composer.lock",
+        "poetry.lock",
+        "package-lock.json",
+        "yarn.lock",
+        "pipfile.lock",
+        "cargo.lock",
+        "composer.lock",
         "gemfile.lock",
     }
 

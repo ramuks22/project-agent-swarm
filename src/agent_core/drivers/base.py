@@ -157,9 +157,7 @@ class BaseAgentDriver(abc.ABC):
         Builds the platform-agnostic core of every system prompt.
         Platforms may prepend or append their own framing.
         """
-        gates = "\n".join(
-            f"- [ ] {g.description}" for g in self.spec.quality_gates
-        )
+        gates = "\n".join(f"- [ ] {g.description}" for g in self.spec.quality_gates)
         out_of_scope = "\n".join(f"- {s}" for s in self.spec.out_of_scope)
         token_budget = context.constraints.get("token_budget", "unset")
 
@@ -230,7 +228,7 @@ Do not exceed it. Prefer shorter summaries over truncated diffs.
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _safe_eval_gate(expr: str, result: "StructuredResult") -> bool:
+    def _safe_eval_gate(expr: str, result: StructuredResult) -> bool:
         """
         Evaluates a quality gate expression against a StructuredResult.
 
@@ -246,11 +244,29 @@ Do not exceed it. Prefer shorter summaries over truncated diffs.
         Any disallowed node type or dunder attribute access raises ValueError.
         """
         _ALLOWED_OPS = (
-            ast.Expression, ast.BoolOp, ast.And, ast.Or, ast.UnaryOp, ast.Not,
-            ast.Compare, ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE,
-            ast.In, ast.NotIn, ast.Attribute, ast.Name, ast.Constant, ast.Call,
+            ast.Expression,
+            ast.BoolOp,
+            ast.And,
+            ast.Or,
+            ast.UnaryOp,
+            ast.Not,
+            ast.Compare,
+            ast.Eq,
+            ast.NotEq,
+            ast.Lt,
+            ast.LtE,
+            ast.Gt,
+            ast.GtE,
+            ast.In,
+            ast.NotIn,
+            ast.Attribute,
+            ast.Name,
+            ast.Constant,
+            ast.Call,
             # Context nodes — AST bookkeeping, not operations
-            ast.Load, ast.Store, ast.Del,
+            ast.Load,
+            ast.Store,
+            ast.Del,
         )
         try:
             tree = ast.parse(expr, mode="eval")
@@ -283,7 +299,7 @@ Do not exceed it. Prefer shorter summaries over truncated diffs.
         except Exception as exc:
             raise ValueError(f"Gate expression evaluation failed: {exc}") from exc
 
-    def _enforce_quality_gates(self, result: "StructuredResult") -> None:
+    def _enforce_quality_gates(self, result: StructuredResult) -> None:
         """
         Mechanically evaluate quality gates that have eval_expr set.
         Failing a gate with strict mode enabled causes an escalation.
@@ -297,13 +313,10 @@ Do not exceed it. Prefer shorter summaries over truncated diffs.
                 logger.error("Gate expression rejected for %s: %s", self.role, exc)
                 passed = False
             if not passed:
-                logger.warning(
-                    "Quality gate failed for %s: %s", self.role, gate.description
-                )
+                logger.warning("Quality gate failed for %s: %s", self.role, gate.description)
                 result.status = TaskStatus.ESCALATED
                 result.escalation_reason = (
-                    f"Quality gate failed: {gate.description} "
-                    f"(eval_expr: {gate.eval_expr})"
+                    f"Quality gate failed: {gate.description} (eval_expr: {gate.eval_expr})"
                 )
                 break
 
@@ -394,5 +407,3 @@ class _GateInterpreter:
         if isinstance(node.op, ast.Not):
             return not operand
         raise ValueError(f"Unsupported UnaryOp: {type(node.op).__name__!r}")
-
-

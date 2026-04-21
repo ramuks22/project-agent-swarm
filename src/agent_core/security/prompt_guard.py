@@ -2,8 +2,8 @@
 prompt_guard.py — Lightweight pre-processor to detect prompt injection risks.
 """
 
-import re
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +18,7 @@ INJECTION_PATTERNS = [
     r"(?i)dan mode",
 ]
 
+
 def scan_for_injection(text: str) -> bool:
     """
     Scans a string for common prompt injection patterns.
@@ -29,14 +30,11 @@ def scan_for_injection(text: str) -> bool:
             return True
     return False
 
+
 def protect_prompt(text: str) -> str:
     """
     Applies defensive wrappers to a user-provided prompt.
     """
     # Simple defense-in-depth: sandwiching the prompt in clear markers
-    protected = (
-        "--- BEGIN USER TASK DESCRIPTION ---\n"
-        f"{text}\n"
-        "--- END USER TASK DESCRIPTION ---"
-    )
+    protected = f"--- BEGIN USER TASK DESCRIPTION ---\n{text}\n--- END USER TASK DESCRIPTION ---"
     return protected

@@ -19,9 +19,10 @@ import sys
 from pathlib import Path
 
 try:
+    from rich import print as rprint
     from rich.console import Console
     from rich.table import Table
-    from rich import print as rprint
+
     _HAS_RICH = True
 except ImportError:
     _HAS_RICH = False
@@ -65,7 +66,9 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         table.add_row("Has OpenAPI spec", str(meta.has_openapi_spec))
         table.add_row("Recommended roles", "\n".join(meta.recommended_roles))
         if meta.agent_specs:
-            table.add_row("Full Agent Specs", "\n".join(f"{s.name} ({s.role})" for s in meta.agent_specs))
+            table.add_row(
+                "Full Agent Specs", "\n".join(f"{s.name} ({s.role})" for s in meta.agent_specs)
+            )
         console.print(table)  # type: ignore[union-attr]
     else:
         print(f"Languages:        {meta.primary_languages}")
@@ -80,6 +83,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         out_path = Path(args.output)
         # Write a swarm.yaml pre-populated with discovered roles
         import yaml  # type: ignore[import-untyped]
+
         roles_data = []
         for spec in meta.agent_specs:
             roles_data.append(json.loads(spec.model_dump_json()))
@@ -101,6 +105,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
 def cmd_validate(args: argparse.Namespace) -> int:
     import yaml  # type: ignore[import-untyped]
     from pydantic import ValidationError
+
     from agent_core.schemas import SwarmConfig
 
     config_path = Path(args.config)
@@ -153,8 +158,9 @@ output_dir: .swarm/outputs
 def cmd_run(args: argparse.Namespace) -> int:
     """Run a named workflow. Requires ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY."""
     import yaml  # type: ignore[import-untyped]
-    from agent_core.schemas import SwarmConfig, Platform
+
     from agent_core.repo_analyzer import analyze
+    from agent_core.schemas import Platform, SwarmConfig
 
     config_path = Path(args.config)
     if not config_path.exists():
@@ -204,6 +210,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
         # Gather all source files for context (optimizer will rank and slice)
         from agent_core.context_optimizer import get_eligible_candidates
+
         source_files = get_eligible_candidates(root)
 
         chain = [(all_specs[r], source_files) for r in workflow_roles if r in all_specs]
@@ -220,7 +227,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         )
 
         for result in results:
-            print(f"\n{'='*60}")
+            print(f"\n{'=' * 60}")
             print(f"Agent: {result.role}  |  Status: {result.status}")
             print(f"Summary: {result.summary}")
             if result.diffs:
@@ -239,13 +246,13 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 def cmd_optimizer_verify(args: argparse.Namespace) -> int:
     from agent_core.context_optimizer import (
+        _is_config_file,
         get_eligible_candidates,
         pass_1_metadata_score,
         pass_2_content_refinement,
         slice_to_budget,
-        _is_config_file,
     )
-    
+
     task_desc = args.task
     budget = args.budget
     root = Path(args.root).resolve()
@@ -254,48 +261,47 @@ def cmd_optimizer_verify(args: argparse.Namespace) -> int:
         return 1
 
     print(f"Running optimizer verification for task: '{task_desc}' (budget: {budget})\\n")
-    
+
     candidates = get_eligible_candidates(root)
     print(f"Candidates found (after directory exclusions): {len(candidates)}")
-    
+
     scored_pass_1 = pass_1_metadata_score(
-        task_description=task_desc,
-        candidate_paths=candidates,
-        agent_role="",
-        recently_changed=None
+        task_description=task_desc, candidate_paths=candidates, agent_role="", recently_changed=None
     )
-    
+
     print(f"Pass-1 files logically scored: {len(scored_pass_1)}")
-    
+
     scored_pass_2 = pass_2_content_refinement(
         candidates=scored_pass_1,
         task_description=task_desc,
         error_trace=None,
         max_reads=25,
-        preview_bytes=8192
+        preview_bytes=8192,
     )
-    
+
     previews_read = sum(1 for sf in scored_pass_2 if sf.content_loaded)
     print(f"Pass-2 bounded previews read: {previews_read}")
-    
+
     zeros = sum(1 for sf in scored_pass_2 if sf.score <= 0)
     print(f"Zero-scored files cleanly filtered: {zeros}")
-    
+
     selected = slice_to_budget(scored_pass_2, token_budget=budget, reserve_for_prompt=0)
-    
+
     selected_count = len(selected)
     artifacts = sum(1 for sf in selected if sf.score < 0)
     configs = sum(1 for sf in selected if _is_config_file(sf.path))
     truncated_count = sum(1 for sf in selected if sf.truncated)
     total_estimated = sum(sf.token_count for sf in selected)
-    
+
     print("\\n--- Selection Summary ---")
     print(f"Total Selected: {selected_count}")
     print(f"Truncated Files: {truncated_count}")
     print(f"Config Files Included: {configs}")
     print(f"Artifact Files Included: {artifacts} (Target: 0)")
-    print(f"Total Token Selection Estimate: {total_estimated} / {budget} ({budget - total_estimated} remaining)")
-    
+    print(
+        f"Total Token Selection Estimate: {total_estimated} / {budget} ({budget - total_estimated} remaining)"
+    )
+
     print("\\n--- Top Selected Candidates ---")
     if _HAS_RICH:
         table = Table(title="Optimizer Top Selections", show_header=True, header_style="bold")
@@ -304,13 +310,17 @@ def cmd_optimizer_verify(args: argparse.Namespace) -> int:
         table.add_column("Path")
         for sf in selected:
             state = "[Trunc]" if sf.truncated else ""
-            table.add_row(f"{sf.score}", f"{state} {sf.token_count}", str(sf.path.relative_to(root)))
+            table.add_row(
+                f"{sf.score}", f"{state} {sf.token_count}", str(sf.path.relative_to(root))
+            )
         console.print(table)
     else:
         for sf in selected:
             state = "[Trunc]" if sf.truncated else ""
-            print(f"[{sf.score:^5}] {state:<7} {sf.token_count:>5} tokens | {sf.path.relative_to(root)}")
-            
+            print(
+                f"[{sf.score:^5}] {state:<7} {sf.token_count:>5} tokens | {sf.path.relative_to(root)}"
+            )
+
     return 0
 
 
@@ -321,6 +331,7 @@ def cmd_optimizer_verify(args: argparse.Namespace) -> int:
 
 def _resolve_api_key(platform: object) -> str:
     from agent_core.schemas import Platform
+
     env_map = {
         Platform.CLAUDE_CODE: "ANTHROPIC_API_KEY",
         Platform.CODEX: "OPENAI_API_KEY",
@@ -348,10 +359,10 @@ def _ensure_gitignore(root: str | Path, pattern: str) -> None:
 def _workflow_role_sequence(workflow: str, available_roles: list[str]) -> list[str]:
     """Map a workflow name to an ordered list of roles, filtered to what's available."""
     sequences: dict[str, list[str]] = {
-        "feature-dev":      ["architect", "implementer", "qa-engineer", "reviewer"],
-        "bug-fix":          ["debugger", "reviewer"],
-        "code-review":      ["reviewer"],
-        "test-generation":  ["qa-engineer", "reviewer"],
+        "feature-dev": ["architect", "implementer", "qa-engineer", "reviewer"],
+        "bug-fix": ["debugger", "reviewer"],
+        "code-review": ["reviewer"],
+        "test-generation": ["qa-engineer", "reviewer"],
     }
     sequence = sequences.get(workflow, [])
     return [r for r in sequence if r in available_roles]
@@ -403,7 +414,9 @@ def build_parser() -> argparse.ArgumentParser:
     # optimizer-verify
     p_opt = sub.add_parser("optimizer-verify", help="Debug and verify the 2-pass context optimizer")
     p_opt.add_argument("task", help="Task description string")
-    p_opt.add_argument("budget", nargs="?", type=int, default=8000, help="Token budget testing limit")
+    p_opt.add_argument(
+        "budget", nargs="?", type=int, default=8000, help="Token budget testing limit"
+    )
     p_opt.add_argument("--root", default=".", help="Repository root")
 
     return parser
@@ -416,10 +429,10 @@ def main() -> None:
     logging.getLogger().setLevel(args.log_level)
 
     handlers = {
-        "analyze":  cmd_analyze,
+        "analyze": cmd_analyze,
         "validate": cmd_validate,
-        "init":     cmd_init,
-        "run":      cmd_run,
+        "init": cmd_init,
+        "run": cmd_run,
         "optimizer-verify": cmd_optimizer_verify,
     }
 

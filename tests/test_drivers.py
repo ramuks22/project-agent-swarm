@@ -3,18 +3,14 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
 
 from agent_core.drivers.base import (
     BaseAgentDriver,
-    MalformedResponseError,
     RateLimitError,
 )
 from agent_core.schemas import (
-    EscalationPolicy,
     AgentSpec,
+    EscalationPolicy,
     QualityGate,
     StructuredResult,
     SwarmContext,
@@ -22,10 +18,10 @@ from agent_core.schemas import (
     ToolPermission,
 )
 
-
 # ---------------------------------------------------------------------------
 # Concrete test driver (minimal subclass)
 # ---------------------------------------------------------------------------
+
 
 class EchoDriver(BaseAgentDriver):
     """Test driver that returns a preset response."""
@@ -74,12 +70,14 @@ class RateLimitDriver(BaseAgentDriver):
 
 class TestEchoDriver:
     def _make_valid_json(self, task_id: str = "t1") -> str:
-        return json.dumps({
-            "task_id": task_id,
-            "role": "implementer",
-            "status": "done",
-            "summary": "All done.",
-        })
+        return json.dumps(
+            {
+                "task_id": task_id,
+                "role": "implementer",
+                "status": "done",
+                "summary": "All done.",
+            }
+        )
 
     async def test_successful_invoke(
         self, minimal_spec: AgentSpec, minimal_context: SwarmContext
@@ -134,9 +132,7 @@ class TestEchoDriver:
 
 
 class TestQualityGateEnforcement:
-    async def test_gate_with_eval_expr_passes(
-        self, minimal_context: SwarmContext
-    ) -> None:
+    async def test_gate_with_eval_expr_passes(self, minimal_context: SwarmContext) -> None:
         spec = AgentSpec(
             name="test",
             role="implementer",
@@ -151,8 +147,6 @@ class TestQualityGateEnforcement:
             tools_allowed=[ToolPermission(name="Read")],
             out_of_scope=[],
         )
-        from pathlib import Path
-        from agent_core.schemas import FileDiff
         raw = (
             '{"task_id":"t1","role":"implementer","status":"done","summary":"done",'
             '"diffs":[{"path":"src/a.py","operation":"modify","unified_diff":"---","explanation":"x"}]}'
@@ -161,9 +155,7 @@ class TestQualityGateEnforcement:
         result = await driver.invoke(minimal_context)
         assert result.status == TaskStatus.DONE
 
-    async def test_gate_with_eval_expr_fails_escalates(
-        self, minimal_context: SwarmContext
-    ) -> None:
+    async def test_gate_with_eval_expr_fails_escalates(self, minimal_context: SwarmContext) -> None:
         spec = AgentSpec(
             name="test",
             role="implementer",
@@ -194,9 +186,7 @@ class TestRateLimitRetry:
         assert result.status == TaskStatus.DONE
         assert driver._call_count == 2
 
-    async def test_escalates_after_max_retries(
-        self, minimal_context: SwarmContext
-    ) -> None:
+    async def test_escalates_after_max_retries(self, minimal_context: SwarmContext) -> None:
         spec = AgentSpec(
             name="test",
             role="implementer",
