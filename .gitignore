@@ -153,3 +153,7 @@ cython_debug/
 infra/terraform/.terraform/
 infra/terraform/*.tfstate*
 infra/terraform/.terraform.lock.hcl
+
+# Agent Swarm state
+.swarm/
+

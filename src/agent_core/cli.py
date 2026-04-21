@@ -89,9 +89,10 @@ def cmd_analyze(args: argparse.Namespace) -> int:
             "token_budget_per_agent": 60000,
             "max_parallel_agents": 1,
             "quality_gate_strict": True,
-            "output_dir": ".agent-swarm/outputs",
+            "output_dir": ".swarm/outputs",
         }
         out_path.write_text(yaml.dump(config, sort_keys=False, default_flow_style=False))
+        _ensure_gitignore(args.root, ".swarm/")
         print(f"Wrote {out_path}")
 
     return 0
@@ -140,9 +141,10 @@ agents: []
 token_budget_per_agent: 60000
 max_parallel_agents: 1
 quality_gate_strict: true
-output_dir: .agent-swarm/outputs
+output_dir: .swarm/outputs
 """
     dest.write_text(template)
+    _ensure_gitignore(args.root, ".swarm/")
     print(f"Created {dest}")
     print("Next: run `agent-core analyze --root . --output swarm.yaml` to discover roles.")
     return 0
@@ -326,6 +328,21 @@ def _resolve_api_key(platform: object) -> str:
         Platform.GENERIC: "ANTHROPIC_API_KEY",
     }
     return os.environ.get(env_map.get(platform, ""), "")  # type: ignore[arg-type]
+
+
+def _ensure_gitignore(root: str | Path, pattern: str) -> None:
+    """Ensure the given pattern is in the host repo's .gitignore."""
+    gitignore_path = Path(root) / ".gitignore"
+    if not gitignore_path.exists():
+        return
+
+    content = gitignore_path.read_text(errors="ignore")
+    if pattern not in content:
+        with open(gitignore_path, "a") as f:
+            if not content.endswith("\n") and content:
+                f.write("\n")
+            f.write(f"\n# Agent Swarm state\n{pattern}\n")
+        print(f"Added {pattern} to {gitignore_path}")
 
 
 def _workflow_role_sequence(workflow: str, available_roles: list[str]) -> list[str]:

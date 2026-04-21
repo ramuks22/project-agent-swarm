@@ -323,7 +323,7 @@ class SwarmConfig(BaseModel, extra="forbid"):
         ),
     )
     output_dir: Path = Field(
-        default=Path(".agent-swarm/outputs"),
+        default=Path(".swarm/outputs"),
         description="Where StructuredResult JSON files are written for host repo pipelines",
     )
     state_store_type: StateStoreType = Field(
@@ -331,7 +331,7 @@ class SwarmConfig(BaseModel, extra="forbid"):
         description="Backend for task checkpointing (file, redis, or memory)",
     )
     state_dir: Path = Field(
-        default=Path(".agent-swarm/state"),
+        default=Path(".swarm/state"),
         description="Directory for file-based task snapshots",
     )
     redis_url: Optional[str] = Field(

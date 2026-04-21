@@ -15,4 +15,4 @@ agents: []
 token_budget_per_agent: 60000
 max_parallel_agents: 1       # increase only after sequential mode is stable
 quality_gate_strict: true
-output_dir: .agent-swarm/outputs
+output_dir: .swarm/outputs
