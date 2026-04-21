@@ -44,7 +44,7 @@ async def main() -> None:
 
     # If config has no explicit agents, use the discovered specs
     if not config.agents:
-        config.agents = metadata.custom_role_specs
+        config.agents = metadata.agent_specs
         print(f"Using {len(metadata.recommended_roles)} auto-discovered roles.")
 
     # Load the markdown templates for building system prompts

@@ -15,7 +15,8 @@ from pathlib import Path
 from typing import Annotated, Any, Dict, List, Optional, Union
 
 class StrEnum(str, Enum):
-    pass
+    def __str__(self) -> str:
+        return str(self.value)
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -274,9 +275,11 @@ class RepoMetadata(BaseModel, extra="forbid"):
         description="module_name -> [file_paths] — used to scope agent context"
     )
     # Agent roles discovered or inferred from this repo's conventions.
-    # The repo_analyzer populates this; the orchestrator reads it.
     recommended_roles: list[str] = Field(default_factory=list)
-    custom_role_specs: list[AgentSpec] = Field(default_factory=list)
+
+    # Full definitions for every role in recommended_roles.
+    # Populated by repo_analyzer.analyze() from custom logic + built-in templates.
+    agent_specs: list[AgentSpec] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

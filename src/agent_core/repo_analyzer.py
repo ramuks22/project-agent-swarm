@@ -108,6 +108,22 @@ def analyze(repo_root: Path) -> RepoMetadata:
         repo_root=repo_root,
     )
 
+    # Hydrate all recommended roles into full AgentSpecs (Built-in + Custom)
+    from agent_core.registry import get_default_registry
+    registry = get_default_registry()
+    
+    all_hydrated_specs = []
+    custom_map = {s.role: s for s in custom_specs}
+
+    for role_name in roles:
+        if role_name in custom_map:
+            all_hydrated_specs.append(custom_map[role_name])
+        else:
+            try:
+                all_hydrated_specs.append(registry.get(role_name))
+            except ValueError:
+                logger.warning("Could not hydrate spec for recommended role: %s", role_name)
+
     logger.info("Discovered roles: %s", roles)
     return RepoMetadata(
         root=repo_root,
@@ -120,7 +136,7 @@ def analyze(repo_root: Path) -> RepoMetadata:
         has_openapi_spec=has_openapi,
         module_map=module_map,
         recommended_roles=roles,
-        custom_role_specs=custom_specs,
+        agent_specs=all_hydrated_specs,
     )
 
 

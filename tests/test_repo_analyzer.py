@@ -41,7 +41,7 @@ class TestAnalyze:
 
     def test_test_automation_spec_has_playwright_responsibility(self, fake_repo: Path) -> None:
         meta = analyze(fake_repo)
-        spec = next((s for s in meta.custom_role_specs if s.name == "test-automation-engineer"), None)
+        spec = next((s for s in meta.agent_specs if s.name == "test-automation-engineer"), None)
         assert spec is not None
         assert any("playwright" in r.lower() or "bdd" in r.lower() or "cucumber" in r.lower()
                    for r in spec.responsibilities)
@@ -80,7 +80,7 @@ class TestAnalyze:
         (tmp_path / "infra" / "main.tf").write_text('resource "aws_s3_bucket" "b" {}\n')
         meta = analyze(tmp_path)
         assert "infra-engineer" in meta.recommended_roles
-        spec = next((s for s in meta.custom_role_specs if s.name == "infra-engineer"), None)
+        spec = next((s for s in meta.agent_specs if s.name == "infra-engineer"), None)
         assert spec is not None
         assert any("terraform" in r.lower() for r in spec.responsibilities)
 

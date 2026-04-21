@@ -45,6 +45,7 @@ agent-core = "agent_core.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agent_core"]
+include = ["src/agent_core/agents/*.yaml", "src/agent_core/agents/*.md"]
 
 [tool.ruff]
 line-length = 100

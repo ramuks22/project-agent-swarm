@@ -64,8 +64,8 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         table.add_row("Has migrations", str(meta.has_migrations))
         table.add_row("Has OpenAPI spec", str(meta.has_openapi_spec))
         table.add_row("Recommended roles", "\n".join(meta.recommended_roles))
-        if meta.custom_role_specs:
-            table.add_row("Custom roles", "\n".join(s.name for s in meta.custom_role_specs))
+        if meta.agent_specs:
+            table.add_row("Full Agent Specs", "\n".join(f"{s.name} ({s.role})" for s in meta.agent_specs))
         console.print(table)  # type: ignore[union-attr]
     else:
         print(f"Languages:        {meta.primary_languages}")
@@ -73,18 +73,16 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         print(f"Test frameworks:  {meta.test_frameworks}")
         print(f"CI systems:       {meta.ci_systems}")
         print(f"Recommended roles: {meta.recommended_roles}")
-        if meta.custom_role_specs:
-            print(f"Custom roles:     {[s.name for s in meta.custom_role_specs]}")
+        if meta.agent_specs:
+            print(f"Full Agent Specs:  {[s.name for s in meta.agent_specs]}")
 
     if args.output:
         out_path = Path(args.output)
         # Write a swarm.yaml pre-populated with discovered roles
         import yaml  # type: ignore[import-untyped]
         roles_data = []
-        for role_name in meta.recommended_roles:
-            spec = next((s for s in meta.custom_role_specs if s.name == role_name), None)
-            if spec:
-                roles_data.append(json.loads(spec.model_dump_json()))
+        for spec in meta.agent_specs:
+            roles_data.append(json.loads(spec.model_dump_json()))
         config = {
             "platform": "claude-code",
             "agents": roles_data,
@@ -178,7 +176,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     meta = analyze(root)
 
     if not config.agents:
-        config = config.model_copy(update={"agents": meta.custom_role_specs})
+        config = config.model_copy(update={"agents": meta.agent_specs})
 
     task = args.task
     if not task:
